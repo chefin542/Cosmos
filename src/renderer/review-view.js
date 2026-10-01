@@ -120,7 +120,7 @@ export function createReviewView(ctx) {
     const key = rangeKey(range);
     summaries.set(key, { status: 'loading' });
     render();
-    const { system, prompt } = R.summaryPrompt(review);
+    const { system, prompt } = R.summaryPrompt(review, { maxChars: llm?.maxPromptChars });
     const res = await ctx.api.llmComplete({ purpose: 'summary', request: { system, prompt } });
     summaries.set(
       key,
@@ -159,7 +159,7 @@ export function createReviewView(ctx) {
     card.append(actions);
 
     if (showPrompt) {
-      const { system, prompt } = R.summaryPrompt(review);
+      const { system, prompt } = R.summaryPrompt(review, { maxChars: llm?.maxPromptChars });
       card.append(
         el('p', 'muted', `아래 내용이 ${where} 로 전송됩니다. (${prompt.length.toLocaleString('ko-KR')}자)`),
         el('pre', 'prompt-preview', `[시스템]\n${system}\n\n[요청]\n${prompt}`),

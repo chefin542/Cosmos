@@ -18,6 +18,7 @@ const { configurePaths } = require('./paths');
 const { createLogger } = require('./logger');
 const { loadSettings, saveSettings, publicSettings, pickLlm } = require('./settings');
 const llm = require('./llm');
+const { importClaudeSettings } = require('./claude-import');
 
 const TITLEBAR_HEIGHT = 40;
 const MIN_WIDTH = 520;
@@ -388,6 +389,47 @@ function setupIpc() {
       log.error('AI 요청 실패', lastLlmError);
       return { ok: false, error: e };
     }
+  });
+
+  // 서버의 모델 목록 (GET /v1/models). draft 는 저장 전 입력값.
+  ipcMain.handle('llm:models', async (event, { draft } = {}) => {
+    if (!fromOurWindow(event)) return null;
+    const saved = loadSettings(PATHS.settingsFile, safeStorage).llm;
+    const settings = draft ? { ...pickLlm(draft), apiKey: draft.apiKey || saved.apiKey } : saved;
+    try {
+      const models = await llm.listModels(settings, { fetch: net.fetch });
+      log.info('모델 목록 받음', { count: models.length, ...llm.describe(settings) });
+      return { ok: true, models };
+    } catch (err) {
+      const e = err instanceof llm.LlmError ? err.toJSON() : { kind: 'unknown', message: err.message };
+      log.warn('모델 목록 실패', { ...llm.describe(settings), ...e });
+      return { ok: false, error: e };
+    }
+  });
+
+  // "Claude Code 설정 가져오기": 찾은 값을 현재 설정에 합쳐 바로 저장한다.
+  // 키는 화면으로 보내지 않고 main 에서 저장만 한다.
+  ipcMain.handle('claude:import', (event) => {
+    if (!fromOurWindow(event)) return null;
+    const result = importClaudeSettings();
+    const current = loadSettings(PATHS.settingsFile, safeStorage).llm;
+    const { found } = result;
+    const foundSomething = Boolean(found.baseURL || found.apiKey || found.model);
+    if (foundSomething) {
+      const next = { ...current, enabled: true, format: found.format };
+      for (const key of ['baseURL', 'apiKey', 'authType', 'model', 'extraHeaders']) {
+        if (found[key] !== undefined) next[key] = found[key];
+      }
+      saveSettings(PATHS.settingsFile, { llm: next }, safeStorage);
+    }
+    log.info('Claude 설정 가져오기', { sources: result.sources, notes: result.notes, models: result.models.length });
+    return {
+      saved: foundSomething,
+      settings: publicSettings(loadSettings(PATHS.settingsFile, safeStorage)),
+      models: result.models,
+      sources: result.sources,
+      notes: result.notes,
+    };
   });
 
   // ---- 문제 해결

@@ -201,9 +201,11 @@ function noteContent(note, max) {
   return clip(note.body, max);
 }
 
-export function summaryPrompt(review) {
+// maxChars: 설정의 "최대 전송 글자 수". 기본 한도보다 작으면 그만큼만 보낸다.
+export function summaryPrompt(review, { maxChars = Infinity } = {}) {
   const { range } = review;
-  const limit = LIMITS[range.kind];
+  const limit = { ...LIMITS[range.kind] };
+  limit.total = Math.min(limit.total, maxChars);
   const lines = [
     `기간: ${range.label} (${range.start} ~ ${range.last})`,
     `통계: 새 메모 ${review.createdCount}개, 고친 메모 ${review.editedCount}개, 완료한 할 일 ${review.done.length}개, 기록한 날 ${review.activeDays}일`,
@@ -218,6 +220,9 @@ export function summaryPrompt(review) {
     '',
     '[이 기간에 쓰거나 고친 메모]',
   ];
+
+  // 완료/남은 할 일 목록만으로 한도를 넘으면 뒤쪽 줄을 잘라 낸다.
+  while (lines.join('\n').length > limit.total && lines.length > 6) lines.splice(lines.length - 2, 1);
 
   let size = lines.join('\n').length;
   let omitted = 0;

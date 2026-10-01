@@ -140,3 +140,66 @@ test('describe()에는 키 값이 들어가지 않는다', () => {
   assert.ok(!JSON.stringify(d).includes('abc'));
   assert.deepEqual(d.extraHeaderNames, ['X-Secret-Token']);
 });
+
+test('주소 끝에 붙여 넣은 경로를 바로잡는다', () => {
+  const { normalizeBaseURL } = require('../src/main/llm');
+  assert.equal(normalizeBaseURL('anthropic', 'https://gw.corp/v1/'), 'https://gw.corp');
+  assert.equal(normalizeBaseURL('anthropic', 'https://gw.corp/v1/messages'), 'https://gw.corp');
+  assert.equal(normalizeBaseURL('anthropic', 'https://gw.corp/llm'), 'https://gw.corp/llm');
+  assert.equal(normalizeBaseURL('openai', 'https://gw.corp/v1/chat/completions'), 'https://gw.corp/v1');
+});
+
+test('Anthropic 형식: 주소에 /v1 이 있어도 /v1/messages 로 한 번만 붙는다', async () => {
+  const srv = await mockServer(() => anthropicReply('ok'));
+  try {
+    await complete(settings({ baseURL: `${srv.url}/v1` }), req);
+    assert.equal(srv.requests[0].url, '/v1/messages');
+  } finally {
+    await srv.close();
+  }
+});
+
+test('<think> 생각 과정은 지우고 답만 돌려준다', async () => {
+  const { stripThinking } = require('../src/main/llm');
+  assert.equal(stripThinking('<think>\n음…\n</think>\n\n■ 요약'), '■ 요약');
+  assert.equal(stripThinking('여는 태그 없이\n</think>답'), '답');
+  assert.equal(stripThinking('<thinking>a</thinking>b<think>c</think>d'), 'bd');
+  const srv = await mockServer(() => ({
+    json: { model: 'qwen', choices: [{ message: { content: '<think>고민</think>\n최종 답' }, finish_reason: 'stop' }] },
+  }));
+  try {
+    const out = await complete(settings({ format: 'openai', baseURL: `${srv.url}/v1`, authType: 'bearer' }), req);
+    assert.equal(out.text, '최종 답');
+  } finally {
+    await srv.close();
+  }
+});
+
+test('입력이 너무 길다는 400 오류는 따로 안내한다', async () => {
+  const srv = await mockServer(() => ({
+    status: 400,
+    json: { error: { message: "This model's maximum context length is 32768 tokens" } },
+  }));
+  try {
+    await assert.rejects(complete(settings({ format: 'openai', baseURL: srv.url }), req), /최대 전송 글자 수/);
+  } finally {
+    await srv.close();
+  }
+});
+
+test('모델 목록: 두 형식 모두 GET /v1/models 의 data[].id 를 읽는다', async () => {
+  const { listModels } = require('../src/main/llm');
+  const srv = await mockServer(({ url }) =>
+    url.startsWith('/v1/models')
+      ? { json: { data: [{ id: 'corp-a', type: 'model' }, { id: 'corp-b', type: 'model' }], has_more: false } }
+      : { status: 404, json: {} },
+  );
+  try {
+    assert.deepEqual(await listModels(settings({ baseURL: srv.url, model: '' })), ['corp-a', 'corp-b']);
+    assert.deepEqual(await listModels(settings({ format: 'openai', baseURL: `${srv.url}/v1`, model: '' })), ['corp-a', 'corp-b']);
+    assert.ok(srv.requests.every((r) => r.method === 'GET'));
+  } finally {
+    await srv.close();
+  }
+  await assert.rejects(listModels(settings({ apiKey: '' })), /API 키/);
+});

@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('cosmos', {
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
   // purpose: 'test' | 'summary'. 결과: { ok: true, text, ... } 또는 { ok: false, error: { kind, message, detail } }
   llmComplete: (payload) => ipcRenderer.invoke('llm:complete', payload),
+  listModels: (payload) => ipcRenderer.invoke('llm:models', payload),
+  importClaudeSettings: () => ipcRenderer.invoke('claude:import'),
   openLogs: () => ipcRenderer.invoke('app:open-logs'),
   getDiagnostics: () => ipcRenderer.invoke('app:diagnostics'),
 

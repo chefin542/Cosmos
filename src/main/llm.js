@@ -20,9 +20,31 @@ const DEFAULT_LLM = {
   maxTokens: 8192,
   timeoutSec: 180,
   extraHeaders: '', // 한 줄에 하나씩 "이름: 값"
+  // 정리 요약 때 한 번에 보내는 최대 글자 수. 사내 오픈 모델은 받을 수 있는 양(컨텍스트)이 작은 경우가 많다.
+  maxPromptChars: 20000,
 };
 
 const OFFICIAL_ANTHROPIC_URL = 'https://api.anthropic.com';
+
+// 주소 끝에 경로를 더 붙여 넣은 경우를 바로잡는다.
+//   anthropic: SDK가 /v1/messages 를 붙이므로 끝의 /v1, /v1/messages 를 뗀다
+//              (Claude 데스크톱 앱 설정에는 /v1 까지 적혀 있는 경우가 있다)
+//   openai:    /chat/completions 를 붙이므로 그 부분을 뗀다
+function normalizeBaseURL(format, url) {
+  let u = String(url || '').trim().replace(/\/+$/, '');
+  if (format === 'openai') return u.replace(/\/chat\/completions$/i, '');
+  u = u.replace(/\/v1\/messages$/i, '').replace(/\/messages$/i, '').replace(/\/v1$/i, '');
+  return u;
+}
+
+// 추론(생각) 모델이 답 앞에 붙이는 <think>…</think> 를 지운다 (Qwen, DeepSeek 등).
+// 여는 태그 없이 </think> 만 오는 경우도 있어 마지막 </think> 뒤만 남긴다.
+function stripThinking(text) {
+  let t = String(text || '').replace(/<(think|thinking)>[\s\S]*?<\/\1>/gi, '');
+  const close = t.search(/<\/(think|thinking)>(?![\s\S]*<\/(think|thinking)>)/i);
+  if (close !== -1) t = t.slice(t.indexOf('>', close) + 1);
+  return t.trim();
+}
 
 class LlmError extends Error {
   // kind: config | auth | not_found | bad_request | rate_limit | server | network | timeout | refusal | bad_response
@@ -89,9 +111,20 @@ const HINT = {
   not_found:
     '주소나 모델을 찾을 수 없습니다. 서버 주소, API 형식, 모델 이름을 확인하세요. (Anthropic 형식은 주소 끝에 /v1을 붙이지 않습니다)',
   bad_request: '서버가 요청을 거절했습니다. 모델 이름과 최대 출력 토큰 설정을 확인하세요.',
+  too_long: "보낼 내용이 모델이 한 번에 받을 수 있는 양보다 많습니다. 고급 설정에서 '최대 전송 글자 수'나 '최대 출력 토큰'을 줄이세요.",
   rate_limit: '요청이 너무 많거나 사용 한도를 넘었습니다. 잠시 후 다시 시도하세요.',
   server: '서버 쪽 오류입니다. 잠시 후 다시 시도하세요.',
 };
+
+// 400 중에서 "입력이 너무 길다"는 오류는 따로 안내한다.
+function httpError(status, detail) {
+  let kind = kindForStatus(status);
+  let hint = HINT[kind];
+  if (kind === 'bad_request' && /context|too long|maximum.*(length|token)|token.*(limit|exceed)|max_tokens/i.test(detail)) {
+    hint = HINT.too_long;
+  }
+  return new LlmError(kind, `${hint} (HTTP ${status})`, { status, detail });
+}
 
 function kindForStatus(status) {
   if (status === 401 || status === 403) return 'auth';
@@ -101,7 +134,7 @@ function kindForStatus(status) {
   return 'bad_request';
 }
 
-function networkError(err, timeoutSec) {
+function networkError(err) {
   const cause = err.cause?.message || err.cause?.code || err.message || '';
   if (/certificate|CERT|SSL|TLS/i.test(cause)) {
     return new LlmError('network', '보안 인증서 문제로 연결하지 못했습니다. 사내 인증서·프록시 설정을 확인하세요.', { detail: cause });
@@ -116,18 +149,28 @@ function timeoutError(timeoutSec) {
   return new LlmError('timeout', `${timeoutSec}초 안에 응답이 없어 중단했습니다. 고급 설정에서 시간 제한을 늘릴 수 있습니다.`);
 }
 
-async function completeAnthropic(llm, { system, prompt }, fetchImpl) {
-  const client = new Anthropic({
+function anthropicClient(llm, fetchImpl) {
+  return new Anthropic({
     // null 을 명시해야 환경 변수(ANTHROPIC_API_KEY 등)를 몰래 읽지 않는다.
     apiKey: llm.authType === 'x-api-key' ? llm.apiKey : null,
     authToken: llm.authType === 'bearer' ? llm.apiKey : null,
-    baseURL: llm.baseURL.trim() || OFFICIAL_ANTHROPIC_URL,
+    baseURL: normalizeBaseURL('anthropic', llm.baseURL) || OFFICIAL_ANTHROPIC_URL,
     defaultHeaders: parseExtraHeaders(llm.extraHeaders),
     timeout: llm.timeoutSec * 1000,
     maxRetries: 1,
     fetch: fetchImpl,
   });
+}
 
+function mapSdkError(err, llm) {
+  if (err instanceof Anthropic.APIConnectionTimeoutError) return timeoutError(llm.timeoutSec);
+  if (err instanceof Anthropic.APIConnectionError) return networkError(err, llm.timeoutSec);
+  if (err instanceof Anthropic.APIError && err.status) return httpError(err.status, err.message);
+  return err;
+}
+
+async function completeAnthropic(llm, { system, prompt }, fetchImpl) {
+  const client = anthropicClient(llm, fetchImpl);
   let res;
   try {
     res = await client.messages.create({
@@ -137,13 +180,7 @@ async function completeAnthropic(llm, { system, prompt }, fetchImpl) {
       messages: [{ role: 'user', content: prompt }],
     });
   } catch (err) {
-    if (err instanceof Anthropic.APIConnectionTimeoutError) throw timeoutError(llm.timeoutSec);
-    if (err instanceof Anthropic.APIConnectionError) throw networkError(err, llm.timeoutSec);
-    if (err instanceof Anthropic.APIError && err.status) {
-      const kind = kindForStatus(err.status);
-      throw new LlmError(kind, `${HINT[kind]} (HTTP ${err.status})`, { status: err.status, detail: err.message });
-    }
-    throw err;
+    throw mapSdkError(err, llm);
   }
 
   if (res.stop_reason === 'refusal') {
@@ -157,11 +194,16 @@ async function completeAnthropic(llm, { system, prompt }, fetchImpl) {
   return { text, model: res.model, stopReason: res.stop_reason, truncated: res.stop_reason === 'max_tokens', usage: res.usage };
 }
 
-async function completeOpenAi(llm, { system, prompt }, fetchImpl) {
-  const url = `${llm.baseURL.trim().replace(/\/+$/, '')}/chat/completions`;
+function openAiHeaders(llm) {
   const headers = { 'content-type': 'application/json', ...parseExtraHeaders(llm.extraHeaders) };
   if (llm.authType === 'bearer') headers.authorization = `Bearer ${llm.apiKey}`;
   else headers['x-api-key'] = llm.apiKey;
+  return headers;
+}
+
+async function completeOpenAi(llm, { system, prompt }, fetchImpl) {
+  const url = `${normalizeBaseURL('openai', llm.baseURL)}/chat/completions`;
+  const headers = openAiHeaders(llm);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), llm.timeoutSec * 1000);
@@ -189,10 +231,7 @@ async function completeOpenAi(llm, { system, prompt }, fetchImpl) {
     clearTimeout(timer);
   }
 
-  if (!res.ok) {
-    const kind = kindForStatus(res.status);
-    throw new LlmError(kind, `${HINT[kind]} (HTTP ${res.status})`, { status: res.status, detail: bodyText });
-  }
+  if (!res.ok) throw httpError(res.status, bodyText);
   let json;
   try {
     json = JSON.parse(bodyText);
@@ -222,7 +261,52 @@ async function complete(llm, request, { fetch: fetchImpl = globalThis.fetch } = 
       { detail: JSON.stringify({ stopReason: result.stopReason, model: result.model }) },
     );
   }
-  return { ...result, ms: Date.now() - started };
+  return { ...result, text: stripThinking(result.text), rawLength: result.text.length, ms: Date.now() - started };
+}
+
+// 서버가 제공하는 모델 목록 (GET /v1/models). 서버가 지원하지 않으면 오류.
+async function listModels(llm, { fetch: fetchImpl = globalThis.fetch } = {}) {
+  if (!llm.apiKey) throw new LlmError('config', 'API 키를 먼저 입력하세요.');
+  if (llm.format === 'openai' && !llm.baseURL.trim()) throw new LlmError('config', '서버 주소를 먼저 입력하세요.');
+  const ids = [];
+  if (llm.format === 'openai') {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.min(llm.timeoutSec, 30) * 1000);
+    let res;
+    let bodyText;
+    try {
+      res = await fetchImpl(`${normalizeBaseURL('openai', llm.baseURL)}/models`, {
+        headers: openAiHeaders(llm),
+        signal: controller.signal,
+      });
+      bodyText = await res.text();
+    } catch (err) {
+      if (controller.signal.aborted) throw timeoutError(Math.min(llm.timeoutSec, 30));
+      throw networkError(err);
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok) throw httpError(res.status, bodyText);
+    const json = (() => {
+      try {
+        return JSON.parse(bodyText);
+      } catch {
+        return null;
+      }
+    })();
+    for (const m of json?.data ?? []) if (m?.id) ids.push(m.id);
+  } else {
+    try {
+      for await (const m of anthropicClient({ ...llm, timeoutSec: Math.min(llm.timeoutSec, 30) }, fetchImpl).models.list()) {
+        if (m?.id) ids.push(m.id);
+        if (ids.length >= 500) break;
+      }
+    } catch (err) {
+      throw mapSdkError(err, llm);
+    }
+  }
+  if (!ids.length) throw new LlmError('bad_response', '서버가 모델 목록을 비워서 보냈습니다. 모델 이름을 직접 입력하세요.');
+  return ids;
 }
 
 const TEST_REQUEST = {
@@ -230,4 +314,14 @@ const TEST_REQUEST = {
   prompt: '연결 테스트입니다. "연결 성공"이라고만 답해 주세요.',
 };
 
-module.exports = { DEFAULT_LLM, LlmError, complete, describe, parseExtraHeaders, TEST_REQUEST };
+module.exports = {
+  DEFAULT_LLM,
+  LlmError,
+  complete,
+  listModels,
+  describe,
+  parseExtraHeaders,
+  normalizeBaseURL,
+  stripThinking,
+  TEST_REQUEST,
+};

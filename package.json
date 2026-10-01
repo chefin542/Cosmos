@@ -1,7 +1,7 @@
 {
   "name": "cosmos-notes",
   "productName": "Cosmos 메모장",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "과학 명언과 함께하는 데스크톱 메모장",
   "main": "src/main/main.js",
   "scripts": {

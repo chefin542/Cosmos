@@ -49,9 +49,14 @@ export function createSettingsView(ctx) {
   const root = $('settings-panel');
   let llm = null;
   let status = null; // { kind: 'ok'|'error'|'busy', text, detail }
+  let report = null; // 마지막 "Claude Code 설정 가져오기" 결과
+  let models = []; // 고를 수 있는 모델 이름들
+  let modelStatus = null; // { kind, text }
 
   async function open() {
     status = null;
+    report = null;
+    modelStatus = null;
     llm = (await ctx.api.getSettings())?.llm;
     render();
   }
@@ -72,7 +77,93 @@ export function createSettingsView(ctx) {
       extraHeaders: root.querySelector('#llm-headers').value,
       maxTokens: num('llm-max-tokens', 256, 128000, 8192),
       timeoutSec: num('llm-timeout', 10, 1800, 180),
+      maxPromptChars: num('llm-max-chars', 2000, 200000, 20000),
     };
+  }
+
+  async function importFromClaude() {
+    report = { busy: true };
+    render();
+    const res = await ctx.api.importClaudeSettings();
+    report = res;
+    llm = res.settings.llm;
+    models = [...new Set([...res.models, ...models])];
+    status = null;
+    render();
+    // 주소와 키를 찾았으면 서버에서 모델 목록도 바로 받아 온다.
+    if (res.saved && llm.hasKey) await loadModels();
+  }
+
+  async function loadModels() {
+    modelStatus = { kind: 'busy', text: '모델 목록을 받는 중…' };
+    renderModels();
+    const res = await ctx.api.listModels({ draft: collect() });
+    if (res?.ok) {
+      models = [...new Set([...res.models, ...models])];
+      modelStatus = { kind: 'ok', text: `서버에서 모델 ${res.models.length}개를 받았습니다. 하나를 눌러 고르세요.` };
+    } else {
+      modelStatus = {
+        kind: 'error',
+        text: `모델 목록을 받지 못했습니다: ${res?.error?.message ?? '알 수 없는 오류'}${models.length ? ' 아래는 설정 파일에서 찾은 모델입니다.' : ''}`,
+      };
+    }
+    renderModels();
+  }
+
+  function renderModels() {
+    const box = root.querySelector('#llm-models');
+    if (!box) return;
+    box.replaceChildren();
+    if (modelStatus) box.append(el('p', `status ${modelStatus.kind}`, modelStatus.text));
+    if (!models.length) return;
+    const current = root.querySelector('#llm-model').value;
+    const chips = el('div', 'model-chips');
+    for (const m of models) {
+      const chip = button('model-chip', m, () => {
+        root.querySelector('#llm-model').value = m;
+        chips.querySelectorAll('.model-chip').forEach((c) => c.setAttribute('aria-pressed', String(c === chip)));
+      });
+      chip.setAttribute('aria-pressed', String(m === current));
+      chips.append(chip);
+    }
+    box.append(chips);
+  }
+
+  function importBox() {
+    const box = el('div', 'import-box');
+    const head = el('div', 'import-head');
+    const text = el('div');
+    text.append(
+      el('strong', '', '회사 Claude 설정 그대로 쓰기'),
+      el('p', 'muted', '이 PC의 Claude Code·Claude 데스크톱 앱 설정에서 서버 주소, API 키, 모델을 찾아 채우고 저장합니다.'),
+    );
+    const btn = button('btn primary', 'Claude Code 설정 가져오기', importFromClaude);
+    btn.disabled = Boolean(report?.busy);
+    head.append(text, btn);
+    box.append(head);
+
+    if (!report || report.busy) return box;
+    const result = el('div', 'import-result');
+    if (report.sources.length) {
+      result.append(el('p', 'status ok', report.saved ? '찾은 값으로 채우고 저장했습니다. "연결 테스트"를 눌러 확인하세요.' : '찾은 값이 있습니다.'));
+      const ul = el('ul');
+      for (const src of report.sources) {
+        const li = el('li');
+        li.append(el('span', '', src.got.join(', ')), el('small', '', src.where));
+        ul.append(li);
+      }
+      result.append(ul);
+      if (!llm.hasKey) result.append(el('p', 'warn', 'API 키는 찾지 못했습니다. 받으신 키를 아래 "API 키" 칸에 넣고 저장하세요.'));
+      if (!llm.baseURL) result.append(el('p', 'warn', '서버 주소를 찾지 못했습니다. 비워 두면 Anthropic 공식 서버로 연결됩니다.'));
+    } else {
+      result.append(
+        el('p', 'warn', '이 PC에서 Claude 설정을 찾지 못했습니다.'),
+        el('p', 'muted', 'Claude Code나 Claude 데스크톱 앱이 설치·설정된 회사 PC에서 다시 눌러 보세요. 그래도 안 되면 키를 준 담당자에게 서버 주소와 모델 이름을 물어보세요.'),
+      );
+    }
+    report.notes.forEach((n) => result.append(el('p', 'muted', `참고: ${n}`)));
+    box.append(result);
+    return box;
   }
 
   async function save() {
@@ -144,6 +235,8 @@ export function createSettingsView(ctx) {
       el('p', 'muted', '주간·연간 정리를 문장으로 요약할 때 씁니다. 요약을 요청하면 그 기간의 메모 내용이 아래 서버로 전송됩니다.'),
     );
 
+    sec.append(importBox());
+
     const enabled = el('label', 'switch');
     enabled.append(input('checkbox', '', { id: 'llm-enabled', checked: llm.enabled }), el('span', '', 'AI 요약 사용'));
     sec.append(enabled);
@@ -168,7 +261,14 @@ export function createSettingsView(ctx) {
     if (llm.hasKey) keyRow.append(button('link-btn', '키 지우기', clearKey));
     sec.append(field('API 키', keyRow, '운영체제 보안 저장소로 암호화해서 이 PC에만 저장합니다.'));
 
-    sec.append(field('모델', input('text', llm.model, { id: 'llm-model', placeholder: '예: claude-opus-5-5', spellcheck: false })));
+    const modelRow = el('div', 'inline');
+    const modelInput = input('text', llm.model, { id: 'llm-model', placeholder: '예: claude-opus-5-5', spellcheck: false });
+    modelRow.append(modelInput, button('btn', '모델 목록 불러오기', loadModels, { title: '서버에 사용할 수 있는 모델을 물어봅니다 (GET /v1/models)' }));
+    const modelField = field('모델', modelRow, '이름이 기억나지 않으면 "모델 목록 불러오기"를 누르세요.');
+    const modelList = el('div', 'model-list');
+    modelList.id = 'llm-models';
+    modelField.append(modelList);
+    sec.append(modelField);
 
     const adv = el('details', 'advanced');
     adv.append(el('summary', '', '고급 설정'));
@@ -182,6 +282,11 @@ export function createSettingsView(ctx) {
       field('추가 헤더', headers, '한 줄에 하나씩 "이름: 값". 사내 게이트웨이가 요구하는 헤더가 있을 때만 씁니다.'),
       field('최대 출력 토큰', input('number', llm.maxTokens, { id: 'llm-max-tokens', min: 256, max: 128000, step: 256 })),
       field('시간 제한(초)', input('number', llm.timeoutSec, { id: 'llm-timeout', min: 10, max: 1800 })),
+      field(
+        '최대 전송 글자 수',
+        input('number', llm.maxPromptChars, { id: 'llm-max-chars', min: 2000, max: 200000, step: 1000 }),
+        '정리 요약 때 한 번에 보내는 기록의 최대 길이. "보낼 내용이 너무 많다"는 오류가 나면 줄이세요.',
+      ),
     );
     sec.append(adv);
 
@@ -239,6 +344,7 @@ export function createSettingsView(ctx) {
     scroll.append(themeSection(), llmSection(), troubleSection());
     root.replaceChildren(bar, scroll);
     renderStatus();
+    renderModels();
   }
 
   return { open };

@@ -22,6 +22,7 @@ npm run dist:win     # Windows 설치 파일 → dist/
 src/main/main.js        창·트레이·IPC·로그 연결 (main 프로세스 진입점)
 src/main/llm.js         LLM 호출. Anthropic 형식(@anthropic-ai/sdk) / OpenAI 호환 형식(fetch). electron 을 import 하지 않음
 src/main/settings.js    settings.json 읽기/쓰기, API 키 암호화(safeStorage)
+src/main/claude-import.js  "Claude Code 설정 가져오기": 이 PC의 Claude Code / Claude 데스크톱 앱 설정에서 주소·키·모델 찾기
 src/main/store.js       JSON 파일 원자적 저장 (임시 파일 → rename)
 src/main/logger.js      logs/cosmos.log, 비밀 값 가리기(redact)
 src/main/paths.js       데이터 파일 위치 (COSMOS_USER_DATA 로 바꿀 수 있음)
@@ -49,6 +50,8 @@ CSP 때문에 인라인 `<script>`와 외부 리소스는 쓸 수 없다.
 | loadData / saveData / saveDataSync | data:load / data:save / data:save-sync | notes.json 읽기·쓰기 (창 닫힐 때는 동기 저장) |
 | getSettings / saveSettings | settings:get / settings:save | AI 설정. 화면에는 키 대신 `hasKey` 만 보낸다 |
 | llmComplete({purpose, request, draft}) | llm:complete | purpose `test`(연결 테스트, draft=저장 전 입력값) / `summary`(request={system,prompt}). 결과 `{ok, text}` 또는 `{ok:false, error:{kind,message,status,detail}}` |
+| listModels({draft}) | llm:models | 서버의 GET /v1/models 로 모델 이름 목록 |
+| importClaudeSettings() | claude:import | Claude 설정에서 찾은 값을 합쳐 바로 저장. 결과에는 키 끝 4자리만 |
 | openLogs / getDiagnostics | app:open-logs / app:diagnostics | 로그 폴더 열기 / 진단 정보 텍스트 |
 | windowAction(name) | win:action | toggle-always-on-top, toggle-collapse, hide-to-tray, minimize, toggle-maximize, close |
 
@@ -86,6 +89,21 @@ main 프로세스는 Electron `net.fetch`(Chromium 네트워크: 시스템 프�
    ```
    (Windows PowerShell: `$env:COSMOS_LLM_MODEL="..."; npm run llm:check`)
 
+`llm.complete()`가 하는 보정:
+- 주소 보정 `normalizeBaseURL()`: Anthropic 형식은 끝의 `/v1`, `/v1/messages`를 떼고(SDK가 `/v1/messages`를 붙임), OpenAI 형식은 끝의 `/chat/completions`를 뗀다.
+- 추론 모델(Qwen, DeepSeek 등)이 답 앞에 붙이는 `<think>…</think>`는 `stripThinking()`이 지운다.
+- 정리 요약 프롬프트 길이는 설정의 `maxPromptChars`(기본 2만 자)를 넘지 않는다 (`review.js` `summaryPrompt`).
+
+"Claude Code 설정 가져오기"(`claude-import.js`)가 보는 곳 — 뒤의 것이 앞을 덮어씀:
+1. 환경 변수 `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`(→Bearer), `ANTHROPIC_API_KEY`(→x-api-key), `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_*_MODEL`, `ANTHROPIC_CUSTOM_HEADERS`
+2. `~/.claude/settings.json`의 `env`, `model`
+3. Claude Code 관리자 설정 `managed-settings.json` (Windows `C:\Program Files\ClaudeCode\`)
+4. Claude 데스크톱 앱(3P, 회사 게이트웨이 모드): 로컬 `%LOCALAPPDATA%\Claude-3p\configLibrary\<id>.json`(`_meta.json`이 적용 중인 id),
+   관리자 정책 레지스트리 `HKLM`/`HKCU\SOFTWARE\Policies\Claude`(HKLM이 있으면 HKCU 무시), Linux `/etc/claude-desktop/managed-settings.json`.
+   키: `inferenceGatewayBaseUrl`, `inferenceGatewayApiKey`, `inferenceGatewayAuthScheme`(기본 bearer), `inferenceModels`, `inferenceCustomHeaders`.
+   참고 문서: https://claude.com/docs/third-party/claude-desktop/configuration
+사내 SSO(`inferenceCredentialKind` 등)나 `apiKeyHelper`처럼 키를 프로그램이 받아 오는 방식이면 키는 가져올 수 없다 — 사용자가 직접 넣는다.
+
 오류 종류(`error.kind`)별로 흔한 원인:
 
 | kind | 흔한 원인 |
@@ -93,7 +111,7 @@ main 프로세스는 Electron `net.fetch`(Chromium 네트워크: 시스템 프�
 | config | 모델/키/주소 누락, 주소가 http(s):// 로 시작하지 않음, 추가 헤더 형식 오류 |
 | auth (401/403) | 키 오류, 인증 방식 불일치 — Claude Code 의 `ANTHROPIC_AUTH_TOKEN`은 Bearer, `ANTHROPIC_API_KEY`는 x-api-key |
 | not_found (404) | Anthropic 형식인데 주소 끝에 `/v1`을 붙임(SDK가 `/v1/messages`를 붙인다), 형식을 잘못 고름, 모델 이름 오류 |
-| bad_request (400) | 모델이 max_tokens 값을 허용하지 않음, 게이트웨이가 요구하는 헤더 누락 |
+| bad_request (400) | 모델이 max_tokens 값을 허용하지 않음, 게이트웨이가 요구하는 헤더 누락. 입력이 모델 한도를 넘으면 "최대 전송 글자 수"를 줄이라고 안내 |
 | network | 사내망/VPN 미연결, 사내 인증서·프록시 문제, 주소 오타 |
 | timeout | 서버가 느림 → 고급 설정의 시간 제한을 늘린다 |
 | bad_response | 답이 비어 있음(출력 토큰 부족 — thinking 모델은 max_tokens를 넉넉히), OpenAI 형식에서 JSON 이 아닌 응답 |

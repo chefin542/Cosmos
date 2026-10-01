@@ -120,3 +120,11 @@ test('정리를 메모로 저장할 때 AI 요약이 맨 위에 온다', () => {
   assert.match(body, /가장 바빴던 날: 9\/29 \(화\)/);
   assert.doesNotMatch(R.reviewNoteBody(review), /─/);
 });
+
+test('최대 전송 글자 수 설정을 지킨다', () => {
+  const many = Array.from({ length: 50 }, (_, i) => note(`메모${i}`, at(2026, 9, 29), { body: '나'.repeat(2000) }));
+  const review = R.buildReview(many, R.weekRange(new Date(2026, 9, 1)));
+  const small = R.summaryPrompt(review, { maxChars: 5000 }).prompt;
+  assert.ok(small.length < 5200, `길이 ${small.length}`);
+  assert.match(small, /제목도 생략/);
+});
