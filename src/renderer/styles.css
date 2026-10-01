@@ -287,8 +287,50 @@ body.collapsed .titlebar {
   margin: 0 12px 10px;
 }
 
+/* 핵심 기능: 이번 주 주보 */
+.report-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 12px 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: linear-gradient(110deg, var(--accent), #7b5cf0);
+  color: #fff;
+  text-align: left;
+  box-shadow: 0 2px 8px rgba(79, 95, 232, 0.25);
+}
+
+.report-btn:hover {
+  filter: brightness(1.07);
+}
+
+.report-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+.report-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+  min-width: 0;
+}
+
+.report-text strong {
+  font-size: 14px;
+}
+
+.report-text small {
+  font-size: 11.5px;
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* 달력 탭에서는 검색창이 숨으므로 위 여백을 대신 준다 */
-#search-box[hidden] + .new-buttons {
+#search-box[hidden] + .report-btn {
   margin-top: 12px;
 }
 
@@ -1442,6 +1484,68 @@ pre {
   .panel-scroll {
     padding: 14px 16px 24px;
   }
+}
+
+/* 주보: 양식 편집 · 보낼 내용 고치기 · 결과 */
+
+.editor-box,
+.result-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.editor-box {
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.editor-box p,
+.result-box p {
+  margin: 0;
+}
+
+.editor-box textarea,
+.result-box textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+}
+
+.editor-box textarea:focus,
+.result-box textarea:focus {
+  border-color: var(--accent);
+}
+
+.mono-area {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, 'D2Coding', monospace !important;
+  font-size: 12.5px !important;
+}
+
+.result-box textarea.ai-text {
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.btn[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.editor-box summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--muted);
 }
 
 /* Claude 설정 가져오기 · 모델 목록 */

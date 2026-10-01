@@ -113,7 +113,7 @@ test('AI 프롬프트에는 기간 기록이 들어가고, 너무 길면 줄인�
 test('정리를 메모로 저장할 때 AI 요약이 맨 위에 온다', () => {
   const { all } = sampleNotes();
   const review = R.buildReview(all, R.weekRange(new Date(2026, 9, 1)));
-  assert.equal(R.reviewNoteTitle(review), '주간 정리 · 2026년 40주차 (9/28 ~ 10/4)');
+  assert.equal(R.reviewNoteTitle(review), '주보 · 2026년 40주차 (9/28 ~ 10/4)');
   const body = R.reviewNoteBody(review, '■ 한눈에 보기\n관측 준비를 함');
   assert.ok(body.startsWith('■ 한눈에 보기'));
   assert.match(body, /\[x\] 망원경 청소/);
@@ -127,4 +127,33 @@ test('최대 전송 글자 수 설정을 지킨다', () => {
   const small = R.summaryPrompt(review, { maxChars: 5000 }).prompt;
   assert.ok(small.length < 5200, `길이 ${small.length}`);
   assert.match(small, /제목도 생략/);
+});
+
+test('주보 기본 양식: 금주 실적 · 차주 계획 · 이슈', () => {
+  const { all } = sampleNotes();
+  const { system, prompt } = R.summaryPrompt(R.buildReview(all, R.weekRange(new Date(2026, 9, 1))));
+  assert.match(system, /주보를 써 주는 비서/);
+  assert.match(system, /\[양식\]\n■ 금주 실적/);
+  assert.match(system, /■ 차주 계획/);
+  assert.match(system, /\[작성 지침\]\n개조식/);
+  assert.match(prompt, /주보를 양식에 맞게 써 줘/);
+});
+
+test('사용자가 고친 양식과 지침을 그대로 넣는다', () => {
+  const { all } = sampleNotes();
+  const template = { format: '1. 금주 업무\n2. 차주 업무\n3. 특이사항', guide: '항목마다 진행률(%)을 붙인다.' };
+  const { system } = R.summaryPrompt(R.buildReview(all, R.weekRange(new Date(2026, 9, 1))), { template });
+  assert.match(system, /\[양식\]\n1\. 금주 업무\n2\. 차주 업무\n3\. 특이사항/);
+  assert.match(system, /진행률\(%\)/);
+  assert.doesNotMatch(system, /금주 실적/);
+  // 양식을 비우면 기본 양식, 지침만 비우면 지침 없이
+  assert.equal(R.templateFor('week', { format: '  ', guide: '' }).format, R.DEFAULT_TEMPLATES.week.format);
+  assert.doesNotMatch(R.summarySystem('week', { format: 'A', guide: '' }), /작성 지침/);
+  assert.match(R.summaryPrompt(R.buildReview(all, R.yearRange(2026))).system, /연간 정리를 써 주는/);
+});
+
+test('양식은 메모 데이터에 저장되고 다시 읽힌다', () => {
+  const data = N.normalizeData({ notes: [], prefs: { templates: { week: { format: 'F', guide: 'G' }, bad: { format: 'x' }, year: 'oops' } } });
+  assert.deepEqual(data.prefs.templates, { week: { format: 'F', guide: 'G' } });
+  assert.equal(N.normalizeData({ notes: [] }).prefs.templates, undefined);
 });

@@ -171,6 +171,8 @@ export function createSettingsView(ctx) {
     llm = next.llm;
     status = { kind: 'ok', text: '저장했습니다.' };
     render();
+    // 서버 주소와 키만 넣고 모델을 비워 두었으면 모델 목록을 바로 받아 온다.
+    if (llm.hasKey && !llm.model) await loadModels();
   }
 
   async function clearKey() {

@@ -161,24 +161,72 @@ export function isEmptyReview(review) {
 
 // ------------------------------------------------------------ AI 요약용 프롬프트
 
-export const SUMMARY_SYSTEM = [
-  '너는 사용자의 메모장 기록을 정리해 주는 비서다.',
-  '주어진 기록에 있는 내용만 근거로 삼고, 기록에 없는 일은 지어내지 않는다.',
-  '한국어로, 존댓말 없이 간결한 보고서 문체(~함, ~했음)로 쓴다.',
-  '마크다운 기호(#, **, 표)는 쓰지 말고 아래 형식의 일반 텍스트로만 답한다.',
-  '',
-  '■ 한눈에 보기',
-  '(이 기간에 무엇을 했는지 2~3문장)',
-  '',
-  '■ 주요 활동',
-  '• (주제별로 묶어서 3~7개)',
-  '',
-  '■ 완료한 일',
-  '• (중요한 것 위주로, 비슷한 것은 묶어서)',
-  '',
-  '■ 이어서 할 일',
-  '• (남은 할 일과 메모에서 보이는 다음 단계. 없으면 "없음")',
-].join('\n');
+// AI에게 주는 양식. 사용자가 정리 화면의 "양식 편집"에서 바꿀 수 있고, 바꾼 값은
+// 메모 데이터의 prefs.templates[kind] 에 저장된다 (notes.js normalizeData 참고).
+//   format: 결과물의 모양 (회사 주보 양식을 그대로 붙여 넣으면 된다)
+//   guide:  작성 지침 (문체, 분량, 묶는 방법 등)
+export const DEFAULT_TEMPLATES = {
+  week: {
+    format: [
+      '■ 금주 실적',
+      '1. (업무/프로젝트명)',
+      '   - (한 일과 결과)',
+      '',
+      '■ 차주 계획',
+      '1. (업무/프로젝트명)',
+      '   - (할 일)',
+      '',
+      '■ 이슈 및 협조 요청',
+      '- (없으면 "없음")',
+    ].join('\n'),
+    guide: [
+      '개조식(~함, ~완료, ~예정)으로 짧게 쓴다.',
+      '같은 업무는 하나의 번호로 묶는다.',
+      '차주 계획은 남은 할 일과 메모에 적힌 다음 단계에서만 고른다.',
+    ].join('\n'),
+  },
+  year: {
+    format: [
+      '■ 한눈에 보기',
+      '(올해 무엇을 했는지 2~3문장)',
+      '',
+      '■ 주요 성과',
+      '• (주제별로 묶어서 3~7개)',
+      '',
+      '■ 월별 흐름',
+      '• (분기나 월 단위로 큰 흐름)',
+      '',
+      '■ 내년에 이어갈 일',
+      '• (남은 할 일과 다음 단계. 없으면 "없음")',
+    ].join('\n'),
+    guide: '간결한 보고서 문체(~함, ~했음)로 쓴다.',
+  },
+};
+
+export const DOC_NAME = { week: '주보', year: '연간 정리' };
+
+export function templateFor(kind, saved) {
+  const base = DEFAULT_TEMPLATES[kind];
+  return {
+    format: typeof saved?.format === 'string' && saved.format.trim() ? saved.format : base.format,
+    guide: typeof saved?.guide === 'string' ? saved.guide : base.guide,
+  };
+}
+
+// 고정 규칙 + 사용자 양식 + 작성 지침
+export function summarySystem(kind, template = DEFAULT_TEMPLATES[kind]) {
+  const lines = [
+    `너는 사용자의 메모장 기록으로 ${DOC_NAME[kind]}를 써 주는 비서다.`,
+    '주어진 기록에 있는 내용만 근거로 삼고, 기록에 없는 일은 지어내지 않는다.',
+    '한국어로 쓴다. 마크다운 기호(#, **, 표)는 쓰지 말고, 아래 [양식]의 모양을 그대로 따른 일반 텍스트로만 답한다.',
+    '양식의 괄호 안 설명은 실제 내용으로 바꾸고, 양식에 없는 머리말·맺음말은 붙이지 않는다.',
+    '',
+    '[양식]',
+    template.format.trim(),
+  ];
+  if (template.guide?.trim()) lines.push('', '[작성 지침]', template.guide.trim());
+  return lines.join('\n');
+}
 
 const LIMITS = {
   week: { perNote: 800, total: 30_000 },
@@ -202,7 +250,8 @@ function noteContent(note, max) {
 }
 
 // maxChars: 설정의 "최대 전송 글자 수". 기본 한도보다 작으면 그만큼만 보낸다.
-export function summaryPrompt(review, { maxChars = Infinity } = {}) {
+// template: { format, guide } — 비우면 기본 양식
+export function summaryPrompt(review, { maxChars = Infinity, template } = {}) {
   const { range } = review;
   const limit = { ...LIMITS[range.kind] };
   limit.total = Math.min(limit.total, maxChars);
@@ -239,15 +288,15 @@ export function summaryPrompt(review, { maxChars = Infinity } = {}) {
   if (omitted) lines.push(`\n(분량 제한으로 메모 ${omitted}개는 제목도 생략함)`);
 
   return {
-    system: SUMMARY_SYSTEM,
-    prompt: `${lines.join('\n')}\n\n위 기록을 정해진 형식으로 정리해 줘.`,
+    system: summarySystem(range.kind, templateFor(range.kind, template)),
+    prompt: `${lines.join('\n')}\n\n위 기록으로 ${DOC_NAME[range.kind]}를 양식에 맞게 써 줘.`,
   };
 }
 
 // ------------------------------------------------------------ 메모로 저장
 
 export function reviewNoteTitle(review) {
-  const kind = review.range.kind === 'week' ? '주간 정리' : '연간 정리';
+  const kind = DOC_NAME[review.range.kind];
   return `${kind} · ${review.range.label} (${review.range.sublabel})`;
 }
 

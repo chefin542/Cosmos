@@ -96,6 +96,15 @@ export function normalizeData(raw) {
   }
   const theme = raw.prefs?.theme;
   if (theme === 'light' || theme === 'dark') data.prefs.theme = theme;
+  // 주보·연간 정리 양식 (review.js DEFAULT_TEMPLATES 를 사용자가 고친 것)
+  const templates = {};
+  for (const kind of ['week', 'year']) {
+    const t = raw.prefs?.templates?.[kind];
+    if (t && typeof t === 'object') {
+      templates[kind] = { format: str(t.format).slice(0, 20000), guide: str(t.guide).slice(0, 5000) };
+    }
+  }
+  if (Object.keys(templates).length) data.prefs.templates = templates;
   return data;
 }
 

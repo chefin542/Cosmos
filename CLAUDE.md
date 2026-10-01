@@ -1,6 +1,7 @@
 # CLAUDE.md — Cosmos 메모장 개발·디버깅 안내
 
-Electron 데스크톱 메모장. 화면 문구와 주석은 한국어로 쓴다.
+Electron 데스크톱 메모장. 핵심 기능은 **주보(주간 업무 보고) 작성** — 앱을 켜면 이번 주 주보 화면이 먼저 열린다.
+화면 문구와 주석은 한국어로 쓴다.
 빌드 단계가 없다: 화면 코드는 브라우저용 ES 모듈 그대로, main 프로세스는 CommonJS 그대로 실행된다.
 
 ## 명령
@@ -29,10 +30,10 @@ src/main/paths.js       데이터 파일 위치 (COSMOS_USER_DATA 로 바꿀 수
 src/preload.js          화면에 노출하는 API: window.cosmos.*
 src/renderer/app.js     화면 상태·메모 목록·편집기·체크리스트·명언 바, 다른 화면 모듈 연결(ctx)
 src/renderer/calendar-view.js   사이드바 "달력" 탭
-src/renderer/review-view.js     주간·연간 정리 화면 + AI 요약 버튼
+src/renderer/review-view.js     주보·연간 정리 화면: AI 작성, 양식 편집, 보낼 기록 고치기, 결과 다듬기·복사
 src/renderer/settings-view.js   설정 화면 (테마, AI 연결, 문제 해결)
 src/renderer/notes.js   메모 데이터 순수 함수 (정렬·검색·휴지통·변환·기록 날짜)
-src/renderer/review.js  날짜별 기록·주간/연간 집계·AI 프롬프트 만들기 (순수 함수)
+src/renderer/review.js  날짜별 기록·주간/연간 집계·주보 양식(DEFAULT_TEMPLATES)·AI 프롬프트 만들기 (순수 함수)
 src/renderer/quotes.js  과학 명언과 10분 교체 로직
 scripts/llm-check.js    터미널용 AI 연결 진단 (Electron main 으로 실행)
 scripts/make-icons.js   아이콘 PNG 생성
@@ -60,7 +61,8 @@ CSP 때문에 인라인 `<script>`와 외부 리소스는 쓸 수 없다.
 Windows `%APPDATA%\cosmos-notes\`, macOS `~/Library/Application Support/cosmos-notes/`, Linux `~/.config/cosmos-notes/`.
 `COSMOS_USER_DATA=<폴더>` 환경 변수로 다른 폴더를 쓸 수 있다 (테스트용).
 
-- `notes.json` — `{ version, prefs: { theme }, notes: [...] }`
+- `notes.json` — `{ version, prefs: { theme, templates? }, notes: [...] }`
+  - `prefs.templates`: `{ week?: { format, guide }, year?: {…} }` 사용자가 고친 주보·연간 정리 양식. 없으면 `review.js`의 `DEFAULT_TEMPLATES`
   - note: `id, type('text'|'checklist'), kind('note'|'review'), title, body, items[], pinned, createdAt, updatedAt, editDays[], deletedAt`
   - item: `id, text, done, doneAt`
   - `editDays`: 쓰거나 고친 날짜 키(`YYYY-MM-DD`, 로컬 시간). 달력·정리의 기준. `markEdited()`로만 갱신한다.
@@ -73,6 +75,9 @@ Windows `%APPDATA%\cosmos-notes\`, macOS `~/Library/Application Support/cosmos-n
 - `logs/cosmos.log` — 1MB 넘으면 `cosmos.log.1` 로 넘어감
 
 ## AI 연결 디버깅
+
+AI에게 가는 내용: system = 고정 규칙 + `[양식]` + `[작성 지침]` (`summarySystem()`), user = 그 기간의 기록 (`summaryPrompt()`).
+사용자가 "보낼 내용 보기·고치기"에서 기록을 고치면 그 기간에 한해 고친 글이 user 로 간다 (저장하지 않음).
 
 흐름: `review-view.js` → `window.cosmos.llmComplete` → `main.js` `llm:complete` → `llm.complete()` → 서버.
 main 프로세스는 Electron `net.fetch`(Chromium 네트워크: 시스템 프록시·OS 인증서 저장소 사용)로 요청한다.

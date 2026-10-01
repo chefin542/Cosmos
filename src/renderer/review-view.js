@@ -1,30 +1,52 @@
-// 오른쪽 영역의 "주간·연간 정리" 화면
+// 오른쪽 영역의 "주보 · 연간 정리" 화면 (앱을 켜면 이번 주 주보가 먼저 보인다)
 //   - 통계와 기록 목록은 review.js 로 계산한다 (AI 없이 항상 동작).
-//   - "AI 요약 만들기"는 main 프로세스(src/main/llm.js)를 거쳐 설정한 LLM에 요청한다.
+//   - "주보 작성하기"는 main 프로세스(src/main/llm.js)를 거쳐 설정한 LLM에 요청한다.
+//   - 양식(형식·작성 지침)은 사용자가 고칠 수 있고 prefs.templates 에 저장된다 (ctx.getTemplate/setTemplate).
+//   - 보낼 기록은 이번 기간에 한해 고쳐서 보낼 수 있다 (저장하지 않음).
 import * as N from './notes.js';
 import * as R from './review.js';
 import { icon } from './icons.js';
 import { $, el, button, dateFmt } from './dom.js';
 
+function textarea(value, { rows = 4, className = '', placeholder = '' } = {}) {
+  const t = document.createElement('textarea');
+  t.value = value;
+  t.rows = rows;
+  t.className = className;
+  t.placeholder = placeholder;
+  t.spellcheck = false;
+  return t;
+}
+
+const rowsFor = (text, min = 4, max = 28) => Math.min(max, Math.max(min, String(text).split('\n').length + 1));
+
 export function createReviewView(ctx) {
   const root = $('review-panel');
   let range = null;
-  let focus = null; // 사용자가 고른 날짜. 주간↔연간을 바꿔도 이 날짜를 기준으로 삼는다.
+  let focus = null; // 사용자가 고른 날짜. 주보↔연간을 바꿔도 이 날짜를 기준으로 삼는다.
   let llm = null; // 화면용 AI 설정 (키 없음)
   let showPrompt = false;
-  // 기간별 AI 요약 결과: key → { status: 'loading'|'done'|'error', text, error, truncated, ms }
+  let showTemplate = false;
+  // 기간별 AI 결과: key → { status: 'loading'|'done'|'error', text, error, truncated, ms }
   const summaries = new Map();
+  // 기간별로 사용자가 고친 "보낼 기록": key → 문자열
+  const promptDrafts = new Map();
   const rangeKey = (r) => `${r.kind}:${r.start}`;
 
   const rangeFor = (kind, date) => (kind === 'week' ? R.weekRange(date) : R.yearRange(date.getFullYear()));
+  const docName = () => R.DOC_NAME[range.kind];
 
   async function open(kind, date) {
     focus = date;
     range = rangeFor(kind, date);
     showPrompt = false;
     render();
+    await refreshSettings();
+  }
+
+  async function refreshSettings() {
     llm = (await ctx.api.getSettings())?.llm ?? null;
-    render();
+    if (range) render();
   }
 
   function setRange(next) {
@@ -32,6 +54,7 @@ export function createReviewView(ctx) {
     if (next.kind === range.kind && next.start !== range.start) focus = next.anchor;
     range = next;
     showPrompt = false;
+    showTemplate = false;
     render();
   }
 
@@ -40,7 +63,7 @@ export function createReviewView(ctx) {
   function toolbar(review) {
     const bar = el('div', 'panel-toolbar');
     const seg = el('div', 'segmented');
-    for (const [kind, label] of [['week', '주간'], ['year', '연간']]) {
+    for (const [kind, label] of [['week', '주보'], ['year', '연간 정리']]) {
       const b = button('', label, () => setRange(rangeFor(kind, focus)));
       b.setAttribute('aria-pressed', String(range.kind === kind));
       seg.append(b);
@@ -55,7 +78,7 @@ export function createReviewView(ctx) {
     );
     const save = button('tool', `${icon('save')}<span class="label">메모로 저장</span>`, () => saveAsNote(review), {
       html: true,
-      title: '이 정리(와 AI 요약)를 메모로 저장합니다',
+      title: `이 ${docName()}를 메모로 저장합니다`,
     });
     save.disabled = R.isEmptyReview(review);
     bar.append(seg, nav, el('span', 'spacer'), save, button('icon-btn', icon('close'), ctx.closePanel, { html: true, title: '닫기' }));
@@ -67,7 +90,7 @@ export function createReviewView(ctx) {
     ctx.saveReviewAsNote(R.reviewNoteTitle(review), R.reviewNoteBody(review, s?.status === 'done' ? s.text : ''));
   }
 
-  // ---------------------------------------------------------- 통계 · AI 요약
+  // ---------------------------------------------------------- 통계
 
   function stats(review) {
     const box = el('div', 'stat-row');
@@ -116,11 +139,20 @@ export function createReviewView(ctx) {
     ctx.showToast('진단 정보를 복사했습니다.');
   }
 
-  async function summarize(review) {
+  // ---------------------------------------------------------- AI 작성
+
+  // 지금 보낼 내용: 시스템(규칙+양식+지침) + 기록(사용자가 고쳤으면 고친 것)
+  function request(review) {
+    const generated = R.summaryPrompt(review, { maxChars: llm?.maxPromptChars, template: ctx.getTemplate(range.kind) });
+    const draft = promptDrafts.get(rangeKey(range));
+    return { system: generated.system, prompt: draft ?? generated.prompt, generated: generated.prompt, edited: draft !== undefined };
+  }
+
+  async function write(review) {
     const key = rangeKey(range);
+    const { system, prompt } = request(review);
     summaries.set(key, { status: 'loading' });
     render();
-    const { system, prompt } = R.summaryPrompt(review, { maxChars: llm?.maxPromptChars });
     const res = await ctx.api.llmComplete({ purpose: 'summary', request: { system, prompt } });
     summaries.set(
       key,
@@ -131,16 +163,104 @@ export function createReviewView(ctx) {
     if (range && rangeKey(range) === key) render();
   }
 
+  function templateEditor() {
+    const box = el('div', 'editor-box');
+    const t = R.templateFor(range.kind, ctx.getTemplate(range.kind));
+    const format = textarea(t.format, { rows: rowsFor(t.format, 8, 24), className: 'mono-area' });
+    const guide = textarea(t.guide, { rows: rowsFor(t.guide, 3, 10), placeholder: '예: 업무명은 [ ]로 감싸고, 항목마다 진행률(%)을 붙인다.' });
+    box.append(
+      el('label', 'field-label', `${docName()} 양식`),
+      el('p', 'field-hint', '회사 양식을 그대로 붙여 넣으세요. 괄호 안 설명은 AI가 실제 내용으로 바꿉니다.'),
+      format,
+      el('label', 'field-label', '작성 지침'),
+      el('p', 'field-hint', '문체, 분량, 묶는 방법 등 AI가 지킬 규칙을 한 줄에 하나씩 적습니다.'),
+      guide,
+    );
+    const actions = el('div', 'row-actions');
+    actions.append(
+      button('btn primary', '양식 저장', () => {
+        ctx.setTemplate(range.kind, { format: format.value, guide: guide.value });
+        showTemplate = false;
+        ctx.showToast(`${docName()} 양식을 저장했습니다. 다음 작성부터 적용됩니다.`);
+        render();
+      }),
+      button('btn', '기본 양식으로', () => {
+        if (!confirm(`${docName()} 양식을 처음 기본값으로 되돌릴까요?`)) return;
+        ctx.setTemplate(range.kind, null);
+        render();
+      }),
+      button('link-btn', '닫기', () => {
+        showTemplate = false;
+        render();
+      }),
+    );
+    box.append(actions);
+    return box;
+  }
+
+  function promptEditor(review, where) {
+    const box = el('div', 'editor-box');
+    const req = request(review);
+    box.append(el('p', 'muted', `아래 내용이 ${where} 로 전송됩니다. 기록은 이번 ${range.kind === 'week' ? '주' : '해'}에 한해 고쳐서 보낼 수 있습니다.`));
+
+    const sys = el('details');
+    sys.append(el('summary', '', 'AI에게 주는 지시 (규칙 + 양식 + 작성 지침)'), el('pre', 'prompt-preview', req.system));
+    box.append(sys);
+
+    const area = textarea(req.prompt, { rows: rowsFor(req.prompt, 8, 22), className: 'mono-area prompt-edit' });
+    const info = el('p', 'field-hint');
+    const reset = button('link-btn', '원래대로', () => {
+      promptDrafts.delete(rangeKey(range));
+      render();
+    });
+    const updateInfo = () => {
+      const edited = promptDrafts.has(rangeKey(range));
+      info.textContent = `${area.value.length.toLocaleString('ko-KR')}자${edited ? ' · 고친 내용으로 보냅니다' : ''}`;
+      reset.hidden = !edited;
+    };
+    // 다시 그리지 않는다 — 입력 중인 커서를 지키기 위해.
+    area.addEventListener('input', () => {
+      if (area.value === req.generated) promptDrafts.delete(rangeKey(range));
+      else promptDrafts.set(rangeKey(range), area.value);
+      updateInfo();
+    });
+    updateInfo();
+    const row = el('div', 'row-actions');
+    row.append(info, reset);
+    box.append(el('label', 'field-label', '보낼 기록'), area, row);
+    return box;
+  }
+
+  function resultBox(s) {
+    const box = el('div', 'result-box');
+    const area = textarea(s.text, { rows: rowsFor(s.text, 8, 30), className: 'ai-text' });
+    // 결과를 직접 다듬을 수 있다. 고친 내용은 복사·메모로 저장에 그대로 쓰인다.
+    area.addEventListener('input', () => {
+      s.text = area.value;
+    });
+    const actions = el('div', 'row-actions');
+    actions.append(
+      button('btn primary', '복사', async () => {
+        await navigator.clipboard.writeText(area.value);
+        ctx.showToast(`${docName()}를 복사했습니다. 메일이나 사내 시스템에 붙여 넣으세요.`);
+      }),
+      el('span', 'muted', `${(s.ms / 1000).toFixed(1)}초 걸림 · 위 글을 직접 고칠 수 있습니다 · "메모로 저장"하면 함께 저장됩니다.`),
+    );
+    box.append(area, actions);
+    if (s.truncated) box.append(el('p', 'warn', '답변이 최대 출력 토큰에서 잘렸습니다. 설정 → 고급에서 늘릴 수 있습니다.'));
+    return box;
+  }
+
   function aiCard(review) {
     const card = el('section', 'ai-card');
     const head = el('div', 'ai-head');
     head.insertAdjacentHTML('beforeend', icon('sparkles'));
-    head.append(el('strong', '', 'AI 요약'));
+    head.append(el('strong', '', `AI ${docName()} 작성`));
     card.append(head);
 
     if (!llm?.enabled) {
-      card.append(el('p', 'muted', 'AI를 연결하면 이 기간의 기록을 문장으로 요약할 수 있습니다. 사내 LLM이나 Claude API를 설정에서 연결하세요.'));
-      card.append(button('btn', 'AI 연결 설정 열기', ctx.openSettings));
+      card.append(el('p', 'muted', `AI를 연결하면 이 기간의 기록으로 ${docName()}를 써 줍니다. 회사 Claude를 쓰고 있다면 설정에서 "Claude Code 설정 가져오기"를 누르세요.`));
+      card.append(button('btn primary', 'AI 연결 설정 열기', ctx.openSettings));
       return card;
     }
 
@@ -149,29 +269,29 @@ export function createReviewView(ctx) {
 
     const s = summaries.get(rangeKey(range));
     const actions = el('div', 'row-actions');
-    const go = button('btn primary', s?.status === 'done' ? '다시 만들기' : 'AI 요약 만들기', () => summarize(review));
+    const go = button('btn primary', s?.status === 'done' ? '다시 작성' : `${docName()} 작성하기`, () => write(review));
     go.disabled = s?.status === 'loading' || R.isEmptyReview(review);
-    const peek = button('link-btn', showPrompt ? '보낼 내용 숨기기' : '보낼 내용 보기', () => {
+    const tpl = button('btn', '양식 편집', () => {
+      showTemplate = !showTemplate;
+      render();
+    });
+    tpl.setAttribute('aria-pressed', String(showTemplate));
+    const peek = button('btn', '보낼 내용 보기·고치기', () => {
       showPrompt = !showPrompt;
       render();
     });
-    actions.append(go, peek);
+    peek.setAttribute('aria-pressed', String(showPrompt));
+    actions.append(go, tpl, peek);
+    if (promptDrafts.has(rangeKey(range))) actions.append(el('span', 'warn', '고친 기록으로 보냅니다'));
     card.append(actions);
 
-    if (showPrompt) {
-      const { system, prompt } = R.summaryPrompt(review, { maxChars: llm?.maxPromptChars });
-      card.append(
-        el('p', 'muted', `아래 내용이 ${where} 로 전송됩니다. (${prompt.length.toLocaleString('ko-KR')}자)`),
-        el('pre', 'prompt-preview', `[시스템]\n${system}\n\n[요청]\n${prompt}`),
-      );
-    }
+    if (showTemplate) card.append(templateEditor());
+    if (showPrompt) card.append(promptEditor(review, where));
 
     if (s?.status === 'loading') {
-      card.append(el('p', 'muted loading', '요약하는 중… 서버에 따라 1~2분 걸릴 수 있습니다.'));
+      card.append(el('p', 'muted loading', `${docName()}를 쓰는 중… 서버에 따라 1~2분 걸릴 수 있습니다.`));
     } else if (s?.status === 'done') {
-      card.append(el('div', 'ai-text', s.text));
-      if (s.truncated) card.append(el('p', 'warn', '답변이 최대 출력 토큰에서 잘렸습니다. 설정 → 고급에서 늘릴 수 있습니다.'));
-      card.append(el('p', 'muted', `${(s.ms / 1000).toFixed(1)}초 걸림 · "메모로 저장"하면 요약도 함께 저장됩니다.`));
+      card.append(resultBox(s));
     } else if (s?.status === 'error') {
       card.append(errorBox(s.error));
     }
@@ -265,7 +385,7 @@ export function createReviewView(ctx) {
     if (!range) return;
     const review = R.buildReview(ctx.state.data.notes, range);
     const scroll = el('div', 'panel-scroll');
-    scroll.append(stats(review), aiCard(review));
+    scroll.append(aiCard(review), stats(review)); // 주보 작성이 핵심이라 맨 위
     if (R.isEmptyReview(review)) {
       scroll.append(el('p', 'list-empty', '이 기간에는 기록이 없습니다.'));
     } else {
@@ -278,5 +398,5 @@ export function createReviewView(ctx) {
     scroll.scrollTop = prev;
   }
 
-  return { open, render };
+  return { open, render, refreshSettings };
 }

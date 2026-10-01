@@ -1,5 +1,6 @@
 import { QUOTE_INTERVAL_MS, createQuoteRotator } from './quotes.js';
 import * as N from './notes.js';
+import * as R from './review.js';
 import { icon, setIcon } from './icons.js';
 import { $, el, dateFmt } from './dom.js';
 import { createCalendarView } from './calendar-view.js';
@@ -8,7 +9,8 @@ import { createSettingsView } from './settings-view.js';
 
 // 화면 구성
 //   사이드바: 메모 목록 | 달력(calendar-view.js) | 휴지통   ← state.view
-//   오른쪽:   메모 편집기 | 주간·연간 정리(review-view.js) | 설정(settings-view.js)   ← state.main
+//   오른쪽:   메모 편집기 | 주보·연간 정리(review-view.js) | 설정(settings-view.js)   ← state.main
+// 앱을 켜면 오른쪽에 이번 주 주보가 먼저 보인다 (init 참고).
 const api = window.cosmos;
 
 document.querySelectorAll('[data-icon]').forEach((el) => setIcon(el, el.dataset.icon));
@@ -148,9 +150,46 @@ function openReview(kind, date) {
   reviewView.open(kind, date);
 }
 
+// 설정을 닫으면 설정을 열기 전 화면(주보 등)으로 돌아간다.
+let mainBeforeSettings = 'editor';
+
 function openSettings() {
+  if (state.main !== 'settings') mainBeforeSettings = state.main;
   showMain('settings');
   settingsView.open();
+}
+
+function closePanel() {
+  if (state.main === 'settings' && mainBeforeSettings === 'review') {
+    showMain('review');
+    reviewView.refreshSettings();
+    return;
+  }
+  showMain('editor');
+  renderEditor();
+}
+
+function openThisWeekReport() {
+  if (state.view === 'trash') setView('notes');
+  openReview('week', new Date());
+}
+
+function renderReportButton() {
+  const r = R.weekRange(new Date());
+  $('report-week').textContent = `${r.label} · ${r.sublabel}`;
+}
+
+// 주보·연간 정리 양식: null 이면 기본 양식으로 되돌린다.
+function getTemplate(kind) {
+  return state.data.prefs.templates?.[kind];
+}
+
+function setTemplate(kind, template) {
+  const all = { ...(state.data.prefs.templates || {}) };
+  if (template) all[kind] = template;
+  else delete all[kind];
+  state.data.prefs.templates = all;
+  markDirty();
 }
 
 // 정리 화면의 "메모로 저장"
@@ -624,6 +663,7 @@ function bindEvents() {
   api.onWindowState(applyWindowState);
   api.onNewNote(() => newNote('text'));
 
+  $('open-report').addEventListener('click', openThisWeekReport);
   $('new-note').addEventListener('click', () => newNote('text'));
   $('new-checklist').addEventListener('click', () => newNote('checklist'));
   $('view-notes').addEventListener('click', () => setView('notes'));
@@ -718,10 +758,9 @@ const ctx = {
   openNote,
   openReview,
   openSettings,
-  closePanel: () => {
-    showMain('editor');
-    renderEditor();
-  },
+  closePanel,
+  getTemplate,
+  setTemplate,
   noteItem,
   saveReviewAsNote,
   setTheme,
@@ -750,10 +789,14 @@ function welcomeNote() {
     '• 체크리스트: 할 일 목록을 만듭니다. 일반 메모와 서로 바꿀 수 있습니다.',
     '• 휴지통: 삭제한 메모는 30일 동안 보관되며 복원할 수 있습니다.',
     '',
-    '■ 달력과 정리',
-    '• 달력: 날짜를 누르면 그날 쓰거나 고친 메모와 완료한 할 일이 나옵니다.',
-    '• 주간·연간 정리: 기간별 통계와 기록을 모아 보고, 메모로 저장할 수 있습니다.',
-    '• AI 요약: 설정(⚙)에서 사내 LLM이나 Claude API를 연결하면 문장으로 요약해 줍니다.',
+    '■ 주보',
+    '• 앱을 켜면 이번 주 주보가 먼저 보입니다. 왼쪽 위 "이번 주 주보"로 언제든 돌아올 수 있습니다.',
+    '• 한 주 동안 쓴 메모와 완료한 할 일이 주보의 재료가 됩니다.',
+    '• 설정(⚙)에서 "Claude Code 설정 가져오기"로 회사 AI를 연결하면 "주보 작성하기"로 주보를 써 줍니다.',
+    '• "양식 편집"에 회사 주보 양식을 붙여 넣으면 그 모양대로 씁니다.',
+    '',
+    '■ 달력',
+    '• 날짜를 누르면 그날 쓰거나 고친 메모와 완료한 할 일이 나옵니다.',
     '',
     '■ 단축키',
     '• Ctrl+N 새 메모 · Ctrl+Shift+N 새 체크리스트',
@@ -779,7 +822,9 @@ async function init() {
   }
   applyTheme();
   renderTabs();
-  selectFirstVisible();
+  renderList();
+  renderReportButton();
+  openThisWeekReport(); // 첫 화면 = 이번 주 주보
   applyWindowState(await api.getWindowState());
 }
 

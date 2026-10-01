@@ -35,8 +35,12 @@
           <span data-icon="search" aria-hidden="true"></span>
           <input id="search" type="search" placeholder="메모 검색" aria-label="메모 검색" />
         </label>
+        <button id="open-report" class="report-btn" title="이번 주 주보 화면을 엽니다">
+          <span data-icon="sparkles" aria-hidden="true"></span>
+          <span class="report-text"><strong>이번 주 주보</strong><small id="report-week"></small></span>
+        </button>
         <div class="new-buttons">
-          <button id="new-note" class="primary" title="새 메모 (Ctrl+N)">
+          <button id="new-note" title="새 메모 (Ctrl+N)">
             <span data-icon="plus" aria-hidden="true"></span><span class="label">새 메모</span>
           </button>
           <button id="new-checklist" class="secondary" title="새 체크리스트 (Ctrl+Shift+N)">

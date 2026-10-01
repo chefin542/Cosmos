@@ -107,9 +107,9 @@ export function createCalendarView(ctx) {
     const days = R.activityByDay(ctx.state.data.notes);
     const actions = el('div', 'cal-actions');
     actions.append(
-      button('', `${icon('sparkles')}<span>주간 정리</span>`, () => ctx.openReview('week', R.parseDayKey(selected)), {
+      button('', `${icon('sparkles')}<span>주보</span>`, () => ctx.openReview('week', R.parseDayKey(selected)), {
         html: true,
-        title: '고른 날짜가 속한 주를 정리합니다',
+        title: '고른 날짜가 속한 주의 주보를 엽니다',
       }),
       button('', `${icon('sparkles')}<span>연간 정리</span>`, () => ctx.openReview('year', R.parseDayKey(selected)), {
         html: true,
