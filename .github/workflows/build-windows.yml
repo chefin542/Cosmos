@@ -43,3 +43,5 @@ jobs:
             2. 내려받은 파일을 더블클릭해서 설치합니다.
             3. "Windows의 PC 보호" 창이 뜨면 **추가 정보 → 실행**을 누릅니다.
                (코드 서명 인증서가 없는 개인 앱이라 나오는 경고입니다.)
+
+            AI 연결부터 주보 작성까지는 [사용 가이드](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/GUIDE.md)를 보세요.

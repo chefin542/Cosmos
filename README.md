@@ -33,7 +33,7 @@ Google Keep, Simplenote, Apple Notes에서 공통으로 쓰는 핵심 기능만 
 - **양식 편집**: 회사 주보 양식과 작성 지침을 붙여 넣으면 그 모양대로 씁니다. (저장됨, 기본 양식으로 되돌리기 가능)
 - **보낼 내용 보기·고치기**: 이번 주에 한해 AI에게 보낼 기록을 더하거나 뺄 수 있습니다.
 - 결과는 그 자리에서 고친 뒤 **복사**하거나 **메모로 저장**합니다.
-- 사용 안내: [AI 연결부터 주보 작성까지 가이드](https://claude.ai/code/artifact/9b50da12-51b5-4e81-8723-e1ef3eb37342)
+- 사용 안내: [AI 연결부터 주보 작성까지 가이드](docs/GUIDE.md)
 
 **달력 · 주간/연간 정리** (1.1)
 - 달력 탭: 기록이 있는 날에 점이 찍히고, 날짜를 누르면 그날 쓰거나 고친 메모와 완료한 할 일이 나옵니다.
@@ -61,6 +61,8 @@ Google Keep, Simplenote, Apple Notes에서 공통으로 쓰는 핵심 기능만 
 (macOS는 `Ctrl` 대신 `Cmd`)
 
 ### 설치 (일반 사용자)
+
+처음 쓰신다면 [사용 가이드](docs/GUIDE.md)를 먼저 보세요 — 설치부터 AI 연결, 주보 작성까지 순서대로 설명합니다.
 
 [Releases 페이지](https://github.com/chefin542/Cosmos/releases)에서 최신 `cosmos-notes-…-win-x64.exe`를 내려받아 실행하세요.
 "Windows의 PC 보호" 창이 뜨면 **추가 정보 → 실행**을 누릅니다.
