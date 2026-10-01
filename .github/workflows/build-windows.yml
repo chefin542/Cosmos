@@ -1,0 +1,45 @@
+# 코드가 올라올 때마다 Windows 설치 파일(.exe)을 만들어
+# 저장소의 Releases 페이지에 올린다.
+name: Windows 설치 파일 만들기
+
+on:
+  push:
+    branches: [mamain, claude/notepad-app-development-9bx9hz]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+      - run: npx electron-builder --win nsis --x64 --publish never
+
+      - name: 버전 읽기
+        id: version
+        shell: bash
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Releases 페이지에 올리기
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Cosmos 메모장 v${{ steps.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          files: dist/*.exe
+          body: |
+            ## 설치 방법
+            1. 아래 **Assets**에서 `cosmos-notes-${{ steps.version.outputs.version }}-win-x64.exe`를 내려받습니다.
+            2. 내려받은 파일을 더블클릭해서 설치합니다.
+            3. "Windows의 PC 보호" 창이 뜨면 **추가 정보 → 실행**을 누릅니다.
+               (코드 서명 인증서가 없는 개인 앱이라 나오는 경고입니다.)
