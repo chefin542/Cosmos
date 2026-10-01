@@ -12,22 +12,49 @@ export function emptyData() {
   return { version: DATA_VERSION, notes: [], prefs: { theme: 'system' } };
 }
 
+// 로컬 시간 기준 날짜 키 (예: "2026-10-01"). 문자열 비교로 날짜 순서를 비교할 수 있다.
+export function dayKey(ts) {
+  const d = new Date(ts);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+const DAY_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// kind: 'note'(일반) | 'review'(주간·연간 정리를 저장한 메모 — 통계에서 제외)
+// editDays: 이 메모를 쓰거나 고친 날짜 키 목록 (달력·정리에 쓰인다)
 export function createNote(type = 'text', now = Date.now()) {
   return {
     id: uid(),
     type,
+    kind: 'note',
     title: '',
     body: '',
     items: type === 'checklist' ? [createItem()] : [],
     pinned: false,
     createdAt: now,
     updatedAt: now,
+    editDays: [dayKey(now)],
     deletedAt: null,
   };
 }
 
-export function createItem(text = '', done = false) {
-  return { id: uid(), text, done };
+// doneAt: 완료 표시한 시각. 날짜를 알 수 없는 완료 항목은 null.
+export function createItem(text = '', done = false, doneAt = null) {
+  return { id: uid(), text, done, doneAt: done ? doneAt : null };
+}
+
+// 메모를 고쳤을 때 호출한다. 수정 시각과 "고친 날"을 함께 기록한다.
+export function markEdited(note, now = Date.now()) {
+  note.updatedAt = now;
+  const key = dayKey(now);
+  if (!note.editDays.includes(key)) note.editDays.push(key);
+}
+
+export function setItemDone(item, done, now = Date.now()) {
+  item.done = done;
+  item.doneAt = done ? now : null;
 }
 
 // 파일에서 읽은 값을 믿지 않고 필드마다 확인해서 정리한다.
@@ -39,9 +66,15 @@ export function normalizeData(raw) {
   const now = Date.now();
   for (const n of raw.notes) {
     if (!n || typeof n !== 'object' || typeof n.id !== 'string') continue;
+    const createdAt = num(n.createdAt, now);
+    const updatedAt = num(n.updatedAt, now);
+    // 1.0 버전 데이터에는 editDays가 없다 → 만든 날과 마지막으로 고친 날로 채운다.
+    let editDays = Array.isArray(n.editDays) ? n.editDays.filter((d) => DAY_KEY_RE.test(d)) : [];
+    if (!editDays.length) editDays = [dayKey(createdAt), dayKey(updatedAt)];
     data.notes.push({
       id: n.id,
       type: n.type === 'checklist' ? 'checklist' : 'text',
+      kind: n.kind === 'review' ? 'review' : 'note',
       title: str(n.title),
       body: str(n.body),
       items: Array.isArray(n.items)
@@ -51,11 +84,13 @@ export function normalizeData(raw) {
               id: typeof it.id === 'string' ? it.id : uid(),
               text: str(it.text),
               done: Boolean(it.done),
+              doneAt: it.done && Number.isFinite(it.doneAt) ? it.doneAt : null,
             }))
         : [],
       pinned: Boolean(n.pinned),
-      createdAt: num(n.createdAt, now),
-      updatedAt: num(n.updatedAt, now),
+      createdAt,
+      updatedAt,
+      editDays: [...new Set(editDays)].sort(),
       deletedAt: Number.isFinite(n.deletedAt) ? n.deletedAt : null,
     });
   }

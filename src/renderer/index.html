@@ -17,6 +17,8 @@
         <span>Cosmos 메모장</span>
       </div>
       <div class="win-controls">
+        <button id="btn-settings" class="win-btn" data-icon="settings" title="설정 (Ctrl+,)"></button>
+        <span class="win-sep" aria-hidden="true"></span>
         <button id="btn-ontop" class="win-btn" data-icon="pin" aria-pressed="false" title="항상 위에 표시"></button>
         <button id="btn-collapse" class="win-btn" data-icon="collapse" aria-pressed="false" title="창 접기"></button>
         <button id="btn-tray" class="win-btn" data-icon="tray" title="트레이로 숨기기"></button>
@@ -29,7 +31,7 @@
 
     <div class="app">
       <aside class="sidebar">
-        <label class="search">
+        <label id="search-box" class="search">
           <span data-icon="search" aria-hidden="true"></span>
           <input id="search" type="search" placeholder="메모 검색" aria-label="메모 검색" />
         </label>
@@ -42,62 +44,67 @@
           </button>
         </div>
         <div id="note-list" class="note-list"></div>
+        <div id="calendar-panel" class="calendar-panel" hidden></div>
         <nav class="sidebar-footer">
           <button id="view-notes" class="tab" aria-pressed="true">
             메모 <span id="count-notes" class="count"></span>
           </button>
+          <button id="view-calendar" class="tab" aria-pressed="false">달력</button>
           <button id="view-trash" class="tab" aria-pressed="false">
             휴지통 <span id="count-trash" class="count"></span>
           </button>
-          <button id="theme-toggle" class="icon-btn" title="테마"></button>
         </nav>
       </aside>
 
       <main class="editor">
-        <div id="empty-state" class="empty-state">
-          <div data-icon="note" aria-hidden="true"></div>
-          <p id="empty-text">메모를 선택하거나 새로 만드세요.</p>
-        </div>
+        <div id="editor-pane" class="editor-pane">
+          <div id="empty-state" class="empty-state">
+            <div data-icon="note" aria-hidden="true"></div>
+            <p id="empty-text">메모를 선택하거나 새로 만드세요.</p>
+          </div>
 
-        <div id="editor-inner" class="editor-inner" hidden>
-          <div class="editor-toolbar">
-            <div id="toolbar-normal" class="toolbar-group">
-              <button id="pin-note" class="tool" aria-pressed="false">
-                <span data-icon="pin" aria-hidden="true"></span><span class="label">고정</span>
-              </button>
-              <button id="convert-note" class="tool">
-                <span data-icon="checklist" aria-hidden="true"></span><span class="label">체크리스트로</span>
-              </button>
-              <span class="spacer"></span>
-              <button id="delete-note" class="tool danger" title="휴지통으로 이동">
-                <span data-icon="trash" aria-hidden="true"></span><span class="label">삭제</span>
-              </button>
+          <div id="editor-inner" class="editor-inner" hidden>
+            <div class="editor-toolbar">
+              <div id="toolbar-normal" class="toolbar-group">
+                <button id="pin-note" class="tool" aria-pressed="false">
+                  <span data-icon="pin" aria-hidden="true"></span><span class="label">고정</span>
+                </button>
+                <button id="convert-note" class="tool">
+                  <span data-icon="checklist" aria-hidden="true"></span><span class="label">체크리스트로</span>
+                </button>
+                <span class="spacer"></span>
+                <button id="delete-note" class="tool danger" title="휴지통으로 이동">
+                  <span data-icon="trash" aria-hidden="true"></span><span class="label">삭제</span>
+                </button>
+              </div>
+              <div id="toolbar-trash" class="toolbar-group" hidden>
+                <button id="restore-note" class="tool">
+                  <span data-icon="restore" aria-hidden="true"></span><span class="label">복원</span>
+                </button>
+                <span class="spacer"></span>
+                <button id="purge-note" class="tool danger">
+                  <span data-icon="trash" aria-hidden="true"></span><span class="label">영구 삭제</span>
+                </button>
+              </div>
             </div>
-            <div id="toolbar-trash" class="toolbar-group" hidden>
-              <button id="restore-note" class="tool">
-                <span data-icon="restore" aria-hidden="true"></span><span class="label">복원</span>
-              </button>
-              <span class="spacer"></span>
-              <button id="purge-note" class="tool danger">
-                <span data-icon="trash" aria-hidden="true"></span><span class="label">영구 삭제</span>
-              </button>
+
+            <p id="trash-banner" class="trash-banner" hidden></p>
+
+            <div class="editor-scroll">
+              <input id="note-title" class="note-title" type="text" placeholder="제목" aria-label="제목" />
+              <textarea id="note-body" class="note-body" placeholder="내용을 입력하세요" aria-label="내용"></textarea>
+              <div id="checklist" class="checklist" hidden></div>
+            </div>
+
+            <div class="editor-meta">
+              <span id="meta-updated"></span>
+              <span id="meta-chars"></span>
+              <span id="meta-saved" class="saved"></span>
             </div>
           </div>
-
-          <p id="trash-banner" class="trash-banner" hidden></p>
-
-          <div class="editor-scroll">
-            <input id="note-title" class="note-title" type="text" placeholder="제목" aria-label="제목" />
-            <textarea id="note-body" class="note-body" placeholder="내용을 입력하세요" aria-label="내용"></textarea>
-            <div id="checklist" class="checklist" hidden></div>
-          </div>
-
-          <div class="editor-meta">
-            <span id="meta-updated"></span>
-            <span id="meta-chars"></span>
-            <span id="meta-saved" class="saved"></span>
-          </div>
         </div>
+        <section id="review-panel" class="panel" hidden></section>
+        <section id="settings-panel" class="panel" hidden></section>
       </main>
     </div>
 

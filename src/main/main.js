@@ -7,21 +7,33 @@ const {
   ipcMain,
   nativeImage,
   nativeTheme,
+  net,
+  safeStorage,
   screen,
+  shell,
 } = require('electron');
+const os = require('os');
 const { readJson, writeJson, isNotesData } = require('./store');
+const { configurePaths } = require('./paths');
+const { createLogger } = require('./logger');
+const { loadSettings, saveSettings, publicSettings, pickLlm } = require('./settings');
+const llm = require('./llm');
 
 const TITLEBAR_HEIGHT = 40;
 const MIN_WIDTH = 520;
 const MIN_HEIGHT = 360;
 const ASSETS = path.join(__dirname, '..', '..', 'assets');
 
-app.setPath(
-  'userData',
-  process.env.COSMOS_USER_DATA || path.join(app.getPath('appData'), 'cosmos-notes'),
-);
-const NOTES_FILE = path.join(app.getPath('userData'), 'notes.json');
-const WINDOW_FILE = path.join(app.getPath('userData'), 'window-state.json');
+const PATHS = configurePaths(app);
+const NOTES_FILE = PATHS.notesFile;
+const WINDOW_FILE = PATHS.windowFile;
+// npm run debug (또는 COSMOS_DEBUG=1) 로 실행하면 개발자 도구가 열린 채로 시작한다.
+const DEBUG = process.env.COSMOS_DEBUG === '1' || process.argv.includes('--cosmos-debug');
+const log = createLogger(PATHS.logDir);
+let lastLlmError = null;
+
+process.on('uncaughtException', (err) => log.error('처리되지 않은 오류', { message: err.message, stack: err.stack }));
+process.on('unhandledRejection', (err) => log.error('처리되지 않은 Promise 오류', { message: String(err?.message || err), stack: err?.stack }));
 
 let win = null;
 let tray = null;
@@ -33,6 +45,7 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on('second-instance', showWindow);
   app.whenReady().then(() => {
+    log.info('앱 시작', { version: app.getVersion(), electron: process.versions.electron, os: `${os.platform()} ${os.release()}`, userData: PATHS.userData });
     setupMenu();
     setupIpc();
     createWindow();
@@ -80,6 +93,7 @@ function createWindow() {
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   win.webContents.on('will-navigate', (e) => e.preventDefault());
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  setupDebugging(win.webContents);
 
   win.once('ready-to-show', () => {
     if (winState.collapsed) {
@@ -247,7 +261,59 @@ function fromOurWindow(event) {
 
 function saveNotes(data) {
   if (!isNotesData(data)) throw new Error('잘못된 메모 데이터입니다.');
-  writeJson(NOTES_FILE, data);
+  try {
+    writeJson(NOTES_FILE, data);
+  } catch (err) {
+    log.error('메모 저장 실패', { message: err.message });
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------- 디버깅
+
+// F12 또는 Ctrl+Shift+I: 개발자 도구. 화면(렌더러)의 오류는 로그 파일에도 남긴다.
+function setupDebugging(contents) {
+  contents.on('before-input-event', (event, input) => {
+    const devtools =
+      input.type === 'keyDown' &&
+      (input.key === 'F12' || ((input.control || input.meta) && input.shift && input.key.toLowerCase() === 'i'));
+    if (devtools) {
+      contents.toggleDevTools();
+      event.preventDefault();
+    }
+  });
+  contents.on('console-message', (...args) => {
+    // Electron 버전에 따라 (event) 또는 (event, level, message, line, sourceId) 형태로 온다.
+    const e = args[0];
+    const level = typeof e.level === 'string' ? e.level : ['debug', 'info', 'warning', 'error'][args[1]];
+    if (level !== 'error') return;
+    const message = e.message ?? args[2];
+    const where = `${e.sourceId ?? args[4] ?? ''}:${e.lineNumber ?? args[3] ?? ''}`;
+    log.error('화면 오류', { message, where });
+  });
+  contents.on('render-process-gone', (_e, details) => log.error('화면 프로세스 종료', details));
+  if (DEBUG) contents.openDevTools({ mode: 'detach' });
+}
+
+// 설정 → "진단 정보 복사". 사내 Claude Code 등에 붙여 넣어 문제를 설명할 때 쓴다.
+function diagnostics() {
+  const settings = loadSettings(PATHS.settingsFile, safeStorage).llm;
+  return [
+    '# Cosmos 메모장 진단 정보',
+    `- 앱 버전: ${app.getVersion()} (Electron ${process.versions.electron}, Chrome ${process.versions.chrome})`,
+    `- OS: ${os.platform()} ${os.release()} ${os.arch()}`,
+    `- 데이터 폴더: ${PATHS.userData}`,
+    `- 로그 파일: ${log.file}`,
+    `- 키 암호화 사용 가능: ${safeStorage.isEncryptionAvailable()}`,
+    '',
+    '## AI 연결 설정 (키 값 제외)',
+    '```json',
+    JSON.stringify(llm.describe(settings), null, 2),
+    '```',
+    '',
+    '## 마지막 AI 오류',
+    lastLlmError ? ['```json', JSON.stringify(lastLlmError, null, 2), '```'].join('\n') : '없음',
+  ].join('\n');
 }
 
 function setupIpc() {
@@ -278,6 +344,64 @@ function setupIpc() {
   });
 
   ipcMain.handle('win:get-state', (event) => (fromOurWindow(event) ? windowStatus() : null));
+
+  // ---- 설정 · AI 연결
+  ipcMain.handle('settings:get', (event) => {
+    if (!fromOurWindow(event)) return null;
+    return publicSettings(loadSettings(PATHS.settingsFile, safeStorage));
+  });
+
+  // apiKey 가 빈 문자열이면 저장된 키를 그대로 둔다. clearKey 가 true면 지운다.
+  ipcMain.handle('settings:save', (event, incoming) => {
+    if (!fromOurWindow(event)) return null;
+    const current = loadSettings(PATHS.settingsFile, safeStorage);
+    const next = pickLlm(incoming?.llm);
+    next.apiKey = incoming?.llm?.clearKey ? '' : incoming?.llm?.apiKey || current.llm.apiKey;
+    saveSettings(PATHS.settingsFile, { llm: next }, safeStorage);
+    log.info('AI 연결 설정 저장', llm.describe(next));
+    return publicSettings({ llm: next });
+  });
+
+  // purpose: 'test'(연결 테스트) | 'summary'(정리 요약). 테스트는 저장 전 입력값으로도 할 수 있다.
+  ipcMain.handle('llm:complete', async (event, { purpose, request, draft } = {}) => {
+    if (!fromOurWindow(event)) return null;
+    const saved = loadSettings(PATHS.settingsFile, safeStorage).llm;
+    let settings = saved;
+    if (draft) {
+      settings = pickLlm(draft);
+      settings.apiKey = draft.apiKey || saved.apiKey;
+    }
+    const req = purpose === 'test' ? llm.TEST_REQUEST : request;
+    if (typeof req?.system !== 'string' || typeof req?.prompt !== 'string') {
+      return { ok: false, error: { kind: 'config', message: '잘못된 요청입니다.' } };
+    }
+    const info = { purpose, ...llm.describe(settings), promptChars: req?.prompt?.length ?? 0 };
+    log.info('AI 요청 시작', info);
+    try {
+      const result = await llm.complete(settings, req, { fetch: net.fetch });
+      log.info('AI 요청 성공', { purpose, ms: result.ms, model: result.model, stopReason: result.stopReason, usage: result.usage });
+      lastLlmError = null;
+      return { ok: true, text: result.text, model: result.model, truncated: result.truncated, ms: result.ms };
+    } catch (err) {
+      const e = err instanceof llm.LlmError ? err.toJSON() : { kind: 'unknown', message: `예상하지 못한 오류: ${err.message}`, detail: err.stack };
+      lastLlmError = { at: new Date().toISOString(), ...info, ...e };
+      log.error('AI 요청 실패', lastLlmError);
+      return { ok: false, error: e };
+    }
+  });
+
+  // ---- 문제 해결
+  ipcMain.handle('app:open-logs', async (event) => {
+    if (!fromOurWindow(event)) return null;
+    const fs = require('fs');
+    fs.mkdirSync(PATHS.logDir, { recursive: true });
+    return shell.openPath(PATHS.logDir);
+  });
+
+  ipcMain.handle('app:diagnostics', (event) => {
+    if (!fromOurWindow(event)) return null;
+    return diagnostics();
+  });
 
   const actions = {
     'toggle-always-on-top': () => setAlwaysOnTop(!win.isAlwaysOnTop()),

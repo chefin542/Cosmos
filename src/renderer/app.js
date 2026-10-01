@@ -1,43 +1,15 @@
 import { QUOTE_INTERVAL_MS, createQuoteRotator } from './quotes.js';
 import * as N from './notes.js';
+import { icon, setIcon } from './icons.js';
+import { $, el, dateFmt } from './dom.js';
+import { createCalendarView } from './calendar-view.js';
+import { createReviewView } from './review-view.js';
+import { createSettingsView } from './settings-view.js';
 
+// 화면 구성
+//   사이드바: 메모 목록 | 달력(calendar-view.js) | 휴지통   ← state.view
+//   오른쪽:   메모 편집기 | 주간·연간 정리(review-view.js) | 설정(settings-view.js)   ← state.main
 const api = window.cosmos;
-const $ = (id) => document.getElementById(id);
-
-// ------------------------------------------------------------ 아이콘
-
-const ICON_PATHS = {
-  pin: '<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>',
-  collapse: '<path d="m17 11-5-5-5 5"/><path d="m17 18-5-5-5 5"/>',
-  expand: '<path d="m7 6 5 5 5-5"/><path d="m7 13 5 5 5-5"/>',
-  tray: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>',
-  minimize: '<path d="M5 12h14"/>',
-  maximize: '<rect x="5" y="5" width="14" height="14" rx="1.5"/>',
-  restoreWin: '<rect x="4" y="8" width="12" height="12" rx="1.5"/><path d="M8 8V5.5A1.5 1.5 0 0 1 9.5 4h9A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H16"/>',
-  close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
-  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
-  plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
-  checklist: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="m8 12 3 3 5-6"/>',
-  text: '<path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/>',
-  trash: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
-  restore: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
-  note: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/>',
-  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
-  moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/>',
-  monitor: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
-  refresh: '<path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/>',
-  chevron: '<path d="m6 9 6 6 6-6"/>',
-  atom: '<circle cx="12" cy="12" r="1.2"/><ellipse cx="12" cy="12" rx="10" ry="4"/><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(60 12 12)"/><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(120 12 12)"/>',
-};
-
-function icon(name) {
-  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name]}</svg>`;
-}
-
-function setIcon(el, name) {
-  el.dataset.icon = name;
-  el.innerHTML = icon(name);
-}
 
 document.querySelectorAll('[data-icon]').forEach((el) => setIcon(el, el.dataset.icon));
 
@@ -46,7 +18,8 @@ document.querySelectorAll('[data-icon]').forEach((el) => setIcon(el, el.dataset.
 const state = {
   data: N.emptyData(),
   selectedId: null,
-  view: 'notes', // 'notes' | 'trash'
+  view: 'notes', // 사이드바: 'notes' | 'calendar' | 'trash'
+  main: 'editor', // 오른쪽: 'editor' | 'review' | 'settings'
   query: '',
   dirty: false,
   showDone: true,
@@ -88,7 +61,7 @@ function isEmptyNote(note) {
 
 // 편집 중인 메모가 바뀌었음을 기록한다.
 function touch(note) {
-  note.updatedAt = Date.now();
+  N.markEdited(note);
   markDirty();
   renderList();
   renderMeta();
@@ -113,6 +86,7 @@ function discardIfEmpty(id) {
 function select(id, { focus = null } = {}) {
   if (state.selectedId && state.selectedId !== id) discardIfEmpty(state.selectedId);
   state.selectedId = id;
+  showMain('editor');
   renderList();
   renderEditor();
   if (focus === 'body') focusBody();
@@ -138,11 +112,63 @@ function newNote(type) {
 
 function setView(view) {
   if (state.view === view) return;
+  const wasTrash = state.view === 'trash';
   if (state.selectedId) discardIfEmpty(state.selectedId);
   state.view = view;
-  state.selectedId = null;
   renderTabs();
+  // 달력으로 갈 때는 보던 메모를 그대로 둔다 (휴지통에서 온 경우만 비운다).
+  if (view === 'calendar') {
+    if (wasTrash) state.selectedId = null;
+    renderList();
+    renderEditor();
+    return;
+  }
+  state.selectedId = null;
   selectFirstVisible();
+}
+
+// 오른쪽 영역 전환: 메모 편집기 / 정리 / 설정
+function showMain(name) {
+  state.main = name;
+  $('editor-pane').hidden = name !== 'editor';
+  $('review-panel').hidden = name !== 'review';
+  $('settings-panel').hidden = name !== 'settings';
+}
+
+function openNote(id) {
+  const note = state.data.notes.find((n) => n.id === id);
+  if (!note) return;
+  if (note.deletedAt !== null && state.view !== 'trash') setView('trash');
+  select(id);
+}
+
+function openReview(kind, date) {
+  if (state.selectedId) discardIfEmpty(state.selectedId);
+  showMain('review');
+  reviewView.open(kind, date);
+}
+
+function openSettings() {
+  showMain('settings');
+  settingsView.open();
+}
+
+// 정리 화면의 "메모로 저장"
+function saveReviewAsNote(title, body) {
+  const note = N.createNote('text');
+  note.kind = 'review';
+  note.title = title;
+  note.body = body;
+  state.data.notes.unshift(note);
+  markDirty();
+  state.query = '';
+  $('search').value = '';
+  if (state.view !== 'notes') {
+    state.view = 'notes';
+    renderTabs();
+  }
+  select(note.id);
+  showToast('정리를 메모로 저장했습니다.');
 }
 
 // 메모를 지운 뒤 목록에서 바로 아래(없으면 위) 메모를 고른다.
@@ -201,7 +227,7 @@ function togglePin(note) {
 
 function convertNote(note) {
   const converted = note.type === 'text' ? N.toChecklist(note) : N.toText(note);
-  converted.updatedAt = Date.now();
+  N.markEdited(converted);
   replaceNote(converted);
   markDirty();
   renderList();
@@ -225,26 +251,12 @@ function focusBody() {
 
 // ------------------------------------------------------------ 렌더링: 목록
 
-const dateFmt = {
-  time: new Intl.DateTimeFormat('ko-KR', { hour: 'numeric', minute: '2-digit' }),
-  day: new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric' }),
-  full: new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'numeric', day: 'numeric' }),
-  long: new Intl.DateTimeFormat('ko-KR', { dateStyle: 'long', timeStyle: 'short' }),
-};
-
 function shortDate(ts) {
   const d = new Date(ts);
   const now = new Date();
   if (d.toDateString() === now.toDateString()) return dateFmt.time.format(d);
   if (d.getFullYear() === now.getFullYear()) return dateFmt.day.format(d);
   return dateFmt.full.format(d);
-}
-
-function el(tag, className, text) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
 }
 
 function noteItem(note) {
@@ -267,6 +279,15 @@ function noteItem(note) {
 }
 
 function renderList() {
+  const calendar = state.view === 'calendar';
+  $('search-box').hidden = calendar;
+  $('note-list').hidden = calendar;
+  $('calendar-panel').hidden = !calendar;
+  if (calendar) {
+    calendarView.render();
+    renderCounts();
+    return;
+  }
   const list = $('note-list');
   const notes = N.visibleNotes(state.data.notes, state);
   const scroll = list.scrollTop;
@@ -312,6 +333,7 @@ function renderCounts() {
 
 function renderTabs() {
   $('view-notes').setAttribute('aria-pressed', String(state.view === 'notes'));
+  $('view-calendar').setAttribute('aria-pressed', String(state.view === 'calendar'));
   $('view-trash').setAttribute('aria-pressed', String(state.view === 'trash'));
 }
 
@@ -383,7 +405,7 @@ function checkRow(note, item, readOnly) {
   box.disabled = readOnly;
   box.setAttribute('aria-label', '완료');
   box.addEventListener('change', () => {
-    item.done = box.checked;
+    N.setItemDone(item, box.checked);
     touch(note);
     renderChecklist();
   });
@@ -497,25 +519,17 @@ function onItemKeydown(e, note, item, input) {
 
 // ------------------------------------------------------------ 테마
 
-const THEMES = ['system', 'light', 'dark'];
-const THEME_LABEL = { system: '시스템 설정', light: '라이트', dark: '다크' };
-const THEME_ICON = { system: 'monitor', light: 'sun', dark: 'moon' };
-
+// 테마는 설정 화면에서 바꾼다. 값은 메모 데이터(prefs.theme)에 함께 저장된다.
 function applyTheme() {
   const theme = state.data.prefs.theme;
   if (theme === 'system') delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = theme;
-  const btn = $('theme-toggle');
-  setIcon(btn, THEME_ICON[theme]);
-  btn.title = `테마: ${THEME_LABEL[theme]} (눌러서 변경)`;
 }
 
-function cycleTheme() {
-  const prefs = state.data.prefs;
-  prefs.theme = THEMES[(THEMES.indexOf(prefs.theme) + 1) % THEMES.length];
+function setTheme(theme) {
+  state.data.prefs.theme = theme;
   applyTheme();
   markDirty();
-  showToast(`테마: ${THEME_LABEL[prefs.theme]}`);
 }
 
 // ------------------------------------------------------------ 토스트
@@ -613,8 +627,9 @@ function bindEvents() {
   $('new-note').addEventListener('click', () => newNote('text'));
   $('new-checklist').addEventListener('click', () => newNote('checklist'));
   $('view-notes').addEventListener('click', () => setView('notes'));
+  $('view-calendar').addEventListener('click', () => setView('calendar'));
   $('view-trash').addEventListener('click', () => setView('trash'));
-  $('theme-toggle').addEventListener('click', cycleTheme);
+  $('btn-settings').addEventListener('click', () => (state.main === 'settings' ? showMain('editor') : openSettings()));
 
   $('note-list').addEventListener('click', (e) => {
     const item = e.target.closest('.note-item');
@@ -681,14 +696,40 @@ function bindEvents() {
       newNote(e.shiftKey ? 'checklist' : 'text');
     } else if (key === 'f') {
       e.preventDefault();
+      if (state.view === 'calendar') setView('notes');
       $('search').focus();
       $('search').select();
     } else if (key === 's') {
       e.preventDefault();
       flush();
+    } else if (key === ',') {
+      e.preventDefault();
+      openSettings();
     }
   });
 }
+
+// ------------------------------------------------------------ 화면 모듈 연결
+
+// 각 화면 모듈(calendar-view.js 등)이 앱 상태와 동작에 접근하는 통로
+const ctx = {
+  api,
+  state,
+  openNote,
+  openReview,
+  openSettings,
+  closePanel: () => {
+    showMain('editor');
+    renderEditor();
+  },
+  noteItem,
+  saveReviewAsNote,
+  setTheme,
+  showToast,
+};
+const calendarView = createCalendarView(ctx);
+const reviewView = createReviewView(ctx);
+const settingsView = createSettingsView(ctx);
 
 // ------------------------------------------------------------ 시작
 
@@ -709,9 +750,14 @@ function welcomeNote() {
     '• 체크리스트: 할 일 목록을 만듭니다. 일반 메모와 서로 바꿀 수 있습니다.',
     '• 휴지통: 삭제한 메모는 30일 동안 보관되며 복원할 수 있습니다.',
     '',
+    '■ 달력과 정리',
+    '• 달력: 날짜를 누르면 그날 쓰거나 고친 메모와 완료한 할 일이 나옵니다.',
+    '• 주간·연간 정리: 기간별 통계와 기록을 모아 보고, 메모로 저장할 수 있습니다.',
+    '• AI 요약: 설정(⚙)에서 사내 LLM이나 Claude API를 연결하면 문장으로 요약해 줍니다.',
+    '',
     '■ 단축키',
     '• Ctrl+N 새 메모 · Ctrl+Shift+N 새 체크리스트',
-    '• Ctrl+F 검색 · Ctrl+S 바로 저장',
+    '• Ctrl+F 검색 · Ctrl+S 바로 저장 · Ctrl+, 설정 · F12 개발자 도구',
     '',
     '하단에는 과학 명언이 10분마다 바뀌어 나타납니다. 🪐',
   ].join('\n');

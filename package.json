@@ -1,12 +1,14 @@
 {
   "name": "cosmos-notes",
   "productName": "Cosmos 메모장",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "과학 명언과 함께하는 데스크톱 메모장",
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
+    "debug": "electron . --cosmos-debug",
     "test": "node --test",
+    "llm:check": "electron scripts/llm-check.js",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win",
     "dist:mac": "electron-builder --mac",
@@ -43,5 +45,8 @@
       "category": "Utility",
       "executableName": "cosmos-notes"
     }
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0"
   }
 }
