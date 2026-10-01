@@ -1,0 +1,47 @@
+{
+  "name": "cosmos-notes",
+  "productName": "Cosmos 메모장",
+  "version": "1.0.0",
+  "description": "과학 명언과 함께하는 데스크톱 메모장",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.cosmos.notes",
+    "productName": "Cosmos 메모장",
+    "artifactName": "cosmos-notes-${version}-${os}-${arch}.${ext}",
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "icon": "assets/icon.png",
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.productivity"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Utility",
+      "executableName": "cosmos-notes"
+    }
+  }
+}

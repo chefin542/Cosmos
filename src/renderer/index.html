@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:"
+    />
+    <title>Cosmos 메모장</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script type="module" src="app.js"></script>
+  </head>
+  <body>
+    <header class="titlebar">
+      <div class="brand">
+        <img src="../../assets/tray@2x.png" alt="" width="18" height="18" />
+        <span>Cosmos 메모장</span>
+      </div>
+      <div class="win-controls">
+        <button id="btn-ontop" class="win-btn" data-icon="pin" aria-pressed="false" title="항상 위에 표시"></button>
+        <button id="btn-collapse" class="win-btn" data-icon="collapse" aria-pressed="false" title="창 접기"></button>
+        <button id="btn-tray" class="win-btn" data-icon="tray" title="트레이로 숨기기"></button>
+        <span class="win-sep" aria-hidden="true"></span>
+        <button id="btn-min" class="win-btn" data-icon="minimize" title="최소화"></button>
+        <button id="btn-max" class="win-btn" data-icon="maximize" title="최대화"></button>
+        <button id="btn-close" class="win-btn close" data-icon="close" title="종료"></button>
+      </div>
+    </header>
+
+    <div class="app">
+      <aside class="sidebar">
+        <label class="search">
+          <span data-icon="search" aria-hidden="true"></span>
+          <input id="search" type="search" placeholder="메모 검색" aria-label="메모 검색" />
+        </label>
+        <div class="new-buttons">
+          <button id="new-note" class="primary" title="새 메모 (Ctrl+N)">
+            <span data-icon="plus" aria-hidden="true"></span><span class="label">새 메모</span>
+          </button>
+          <button id="new-checklist" class="secondary" title="새 체크리스트 (Ctrl+Shift+N)">
+            <span data-icon="checklist" aria-hidden="true"></span><span class="label">체크리스트</span>
+          </button>
+        </div>
+        <div id="note-list" class="note-list"></div>
+        <nav class="sidebar-footer">
+          <button id="view-notes" class="tab" aria-pressed="true">
+            메모 <span id="count-notes" class="count"></span>
+          </button>
+          <button id="view-trash" class="tab" aria-pressed="false">
+            휴지통 <span id="count-trash" class="count"></span>
+          </button>
+          <button id="theme-toggle" class="icon-btn" title="테마"></button>
+        </nav>
+      </aside>
+
+      <main class="editor">
+        <div id="empty-state" class="empty-state">
+          <div data-icon="note" aria-hidden="true"></div>
+          <p id="empty-text">메모를 선택하거나 새로 만드세요.</p>
+        </div>
+
+        <div id="editor-inner" class="editor-inner" hidden>
+          <div class="editor-toolbar">
+            <div id="toolbar-normal" class="toolbar-group">
+              <button id="pin-note" class="tool" aria-pressed="false">
+                <span data-icon="pin" aria-hidden="true"></span><span class="label">고정</span>
+              </button>
+              <button id="convert-note" class="tool">
+                <span data-icon="checklist" aria-hidden="true"></span><span class="label">체크리스트로</span>
+              </button>
+              <span class="spacer"></span>
+              <button id="delete-note" class="tool danger" title="휴지통으로 이동">
+                <span data-icon="trash" aria-hidden="true"></span><span class="label">삭제</span>
+              </button>
+            </div>
+            <div id="toolbar-trash" class="toolbar-group" hidden>
+              <button id="restore-note" class="tool">
+                <span data-icon="restore" aria-hidden="true"></span><span class="label">복원</span>
+              </button>
+              <span class="spacer"></span>
+              <button id="purge-note" class="tool danger">
+                <span data-icon="trash" aria-hidden="true"></span><span class="label">영구 삭제</span>
+              </button>
+            </div>
+          </div>
+
+          <p id="trash-banner" class="trash-banner" hidden></p>
+
+          <div class="editor-scroll">
+            <input id="note-title" class="note-title" type="text" placeholder="제목" aria-label="제목" />
+            <textarea id="note-body" class="note-body" placeholder="내용을 입력하세요" aria-label="내용"></textarea>
+            <div id="checklist" class="checklist" hidden></div>
+          </div>
+
+          <div class="editor-meta">
+            <span id="meta-updated"></span>
+            <span id="meta-chars"></span>
+            <span id="meta-saved" class="saved"></span>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <footer class="quote-bar" aria-live="polite">
+      <div id="quote-progress" class="quote-progress"></div>
+      <span class="quote-icon" data-icon="atom" aria-hidden="true"></span>
+      <div id="quote-body" class="quote-body">
+        <p id="quote-text" class="quote-text"></p>
+        <p class="quote-cite"><span id="quote-author"></span><span id="quote-source"></span></p>
+      </div>
+      <button id="quote-next" class="quote-next" data-icon="refresh" title="다음 명언"></button>
+    </footer>
+
+    <div id="toast" class="toast" role="status" hidden>
+      <span id="toast-text"></span>
+      <button id="toast-action" hidden></button>
+    </div>
+  </body>
+</html>
