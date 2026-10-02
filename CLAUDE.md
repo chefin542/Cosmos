@@ -29,7 +29,7 @@ src/main/logger.js      logs/cosmos.log, 비밀 값 가리기(redact)
 src/main/paths.js       데이터 파일 위치 (COSMOS_USER_DATA 로 바꿀 수 있음)
 src/preload.js          화면에 노출하는 API: window.cosmos.*
 src/renderer/app.js     화면 상태·메모 목록·편집기·체크리스트·명언 바, 다른 화면 모듈 연결(ctx)
-src/renderer/calendar-view.js   사이드바 "달력" 탭
+src/renderer/calendar-view.js   사이드바 "달력" 탭 (+ "이 날 메모 쓰기/열기" → app.js `openDayMemo`)
 src/renderer/review-view.js     주보·연간 정리 화면: AI 작성, 양식 편집, 보낼 기록 고치기, 결과 다듬기·복사
 src/renderer/settings-view.js   설정 화면 (테마, AI 연결, 문제 해결)
 src/renderer/notes.js   메모 데이터 순수 함수 (정렬·검색·휴지통·변환·기록 날짜)
@@ -63,7 +63,9 @@ Windows `%APPDATA%\cosmos-notes\`, macOS `~/Library/Application Support/cosmos-n
 
 - `notes.json` — `{ version, prefs: { theme, templates? }, notes: [...] }`
   - `prefs.templates`: `{ week?: { format, guide }, year?: {…} }` 사용자가 고친 주보·연간 정리 양식. 없으면 `review.js`의 `DEFAULT_TEMPLATES`
-  - note: `id, type('text'|'checklist'), kind('note'|'review'), title, body, items[], pinned, createdAt, updatedAt, editDays[], deletedAt`
+  - note: `id, type('text'|'checklist'), kind('note'|'review'), title, body, items[], pinned, createdAt, updatedAt, editDays[], date, deletedAt`
+  - `date`: "그날의 메모"로 지정한 날짜 키 또는 null. 지정하면 달력·정리에서 `editDays` 대신 이 날짜 하나로 센다 (`noteDays()`). 미래 날짜도 된다.
+    다음 주 날짜 메모는 이번 주 주보 프롬프트에 "차주 계획" 재료로 들어간다 (`review.ahead`).
   - item: `id, text, done, doneAt`
   - `editDays`: 쓰거나 고친 날짜 키(`YYYY-MM-DD`, 로컬 시간). 달력·정리의 기준. `markEdited()`로만 갱신한다.
   - `doneAt`: 완료 시각. 날짜를 모르면 null (1.0 데이터, 일반 메모→체크리스트 변환으로 생긴 [x] 항목).

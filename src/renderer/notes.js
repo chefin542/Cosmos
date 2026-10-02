@@ -24,7 +24,9 @@ const DAY_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // kind: 'note'(일반) | 'review'(주간·연간 정리를 저장한 메모 — 통계에서 제외)
 // editDays: 이 메모를 쓰거나 고친 날짜 키 목록 (달력·정리에 쓰인다)
-export function createNote(type = 'text', now = Date.now()) {
+// date: "그날의 메모"로 지정한 날짜 키 또는 null. 지정하면 달력·정리에서 editDays 대신 이 날짜로 센다
+//       (미래 날짜로 미리 써 둘 수 있다).
+export function createNote(type = 'text', now = Date.now(), date = null) {
   return {
     id: uid(),
     type,
@@ -36,8 +38,34 @@ export function createNote(type = 'text', now = Date.now()) {
     createdAt: now,
     updatedAt: now,
     editDays: [dayKey(now)],
+    date,
     deletedAt: null,
   };
+}
+
+const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'];
+
+// "2026-10-03" → "10월 3일 (토)"
+export function dateLabel(key) {
+  const [y, m, d] = key.split('-').map(Number);
+  return `${m}월 ${d}일 (${WEEKDAY[new Date(y, m - 1, d).getDay()]})`;
+}
+
+export function addDaysKey(key, n) {
+  const [y, m, d] = key.split('-').map(Number);
+  return dayKey(new Date(y, m - 1, d + n));
+}
+
+// 달력·정리에서 이 메모가 속하는 날짜들
+export function noteDays(note) {
+  return note.date ? [note.date] : note.editDays;
+}
+
+// 그 날짜로 지정한 메모 (휴지통·정리 메모 제외, 최근 수정 순)
+export function notesForDate(notes, key) {
+  return notes
+    .filter((n) => n.date === key && n.deletedAt === null && n.kind !== 'review')
+    .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 // doneAt: 완료 표시한 시각. 날짜를 알 수 없는 완료 항목은 null.
@@ -91,6 +119,7 @@ export function normalizeData(raw) {
       createdAt,
       updatedAt,
       editDays: [...new Set(editDays)].sort(),
+      date: typeof n.date === 'string' && DAY_KEY_RE.test(n.date) ? n.date : null,
       deletedAt: Number.isFinite(n.deletedAt) ? n.deletedAt : null,
     });
   }
@@ -114,7 +143,7 @@ export function noteTitle(note) {
     note.type === 'checklist'
       ? note.items.find((it) => it.text.trim())?.text
       : note.body.split('\n').find((line) => line.trim());
-  return first?.trim() || '제목 없음';
+  return first?.trim() || (note.date ? `${dateLabel(note.date)} 메모` : '제목 없음');
 }
 
 export function notePreview(note, max = 80) {

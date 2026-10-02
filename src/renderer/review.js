@@ -1,11 +1,12 @@
 // 날짜별 기록 · 주간/연간 정리를 계산하는 순수 함수 모음 (DOM 없음 → node --test 로 테스트).
 //
 // "그날 한 일"의 기준
-//   - 메모: note.editDays 에 그 날짜가 있으면 그날 쓰거나 고친 메모
+//   - 메모: note.editDays 에 그 날짜가 있으면 그날 쓰거나 고친 메모.
+//           단 날짜를 지정한 메모(note.date)는 그 날짜 하나에만 속한다 (noteDays).
 //   - 할 일: 체크리스트 항목의 doneAt 이 그 날짜면 그날 완료한 일
 // 휴지통의 메모와 정리 결과를 저장한 메모(kind: 'review')는 제외한다.
 
-import { dayKey, noteTitle } from './notes.js';
+import { dayKey, noteTitle, noteDays, addDaysKey } from './notes.js';
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
@@ -85,7 +86,7 @@ export function activityByDay(notes) {
     return days.get(key);
   };
   for (const note of trackedNotes(notes)) {
-    for (const key of note.editDays) day(key).notes.push(note);
+    for (const key of noteDays(note)) day(key).notes.push(note);
     for (const item of note.items) {
       if (item.done && item.doneAt !== null) day(dayKey(item.doneAt)).done.push({ note, item });
     }
@@ -117,7 +118,8 @@ export function buildReview(notes, range) {
   }
 
   const touchedNotes = [...touched.values()].sort((a, b) => b.updatedAt - a.updatedAt);
-  const created = touchedNotes.filter((n) => inRange(dayKey(n.createdAt), range));
+  // 날짜를 지정한 메모는 그 날짜가 기간 안이면 새 메모로 센다.
+  const created = touchedNotes.filter((n) => inRange(n.date ?? dayKey(n.createdAt), range));
   const open = [];
   for (const note of touchedNotes) {
     for (const item of note.items) {
@@ -137,6 +139,12 @@ export function buildReview(notes, range) {
   };
 
   if (range.kind === 'week') {
+    // 다음 주 날짜로 미리 적어 둔 메모 → 주보의 "차주 계획" 재료
+    const nextStart = range.end;
+    const nextEnd = addDaysKey(range.end, 7);
+    review.ahead = trackedNotes(notes)
+      .filter((n) => n.date && n.date >= nextStart && n.date < nextEnd)
+      .sort((a, b) => (a.date < b.date ? -1 : 1));
     review.byDay = Array.from({ length: 7 }, (_, i) => {
       const key = dayKey(addDays(range.anchor, i));
       const entry = days.get(key);
@@ -182,7 +190,7 @@ export const DEFAULT_TEMPLATES = {
     guide: [
       '개조식(~함, ~완료, ~예정)으로 짧게 쓴다.',
       '같은 업무는 하나의 번호로 묶는다.',
-      '차주 계획은 남은 할 일과 메모에 적힌 다음 단계에서만 고른다.',
+      '차주 계획은 남은 할 일, 다음 주 날짜로 미리 적어 둔 메모, 메모에 적힌 다음 단계에서만 고른다.',
     ].join('\n'),
   },
   year: {
@@ -276,8 +284,8 @@ export function summaryPrompt(review, { maxChars = Infinity, template } = {}) {
   let size = lines.join('\n').length;
   let omitted = 0;
   for (const note of review.notes) {
-    const days = note.editDays.filter((k) => inRange(k, range));
-    const block = `\n--- ${noteTitle(note)} (작성/수정: ${days.join(', ')})\n${noteContent(note, limit.perNote)}`;
+    const when = note.date ? `날짜: ${note.date}` : `작성/수정: ${note.editDays.filter((k) => inRange(k, range)).join(', ')}`;
+    const block = `\n--- ${noteTitle(note)} (${when})\n${noteContent(note, limit.perNote)}`;
     if (size + block.length > limit.total) {
       omitted++;
       continue;
@@ -286,6 +294,16 @@ export function summaryPrompt(review, { maxChars = Infinity, template } = {}) {
     size += block.length;
   }
   if (omitted) lines.push(`\n(분량 제한으로 메모 ${omitted}개는 제목도 생략함)`);
+
+  if (review.ahead?.length) {
+    lines.push('', '[다음 주 날짜로 미리 적어 둔 메모 — 차주 계획에 참고]');
+    for (const note of review.ahead) {
+      const block = `\n--- ${noteTitle(note)} (날짜: ${note.date})\n${noteContent(note, limit.perNote)}`;
+      if (size + block.length > limit.total) break;
+      lines.push(block);
+      size += block.length;
+    }
+  }
 
   return {
     system: summarySystem(range.kind, templateFor(range.kind, template)),

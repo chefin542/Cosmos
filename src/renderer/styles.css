@@ -621,6 +621,12 @@ body.collapsed .titlebar {
   outline: none;
 }
 
+/* 본문·제목은 테두리 없는 글쓰기 영역이라 포커스 테두리를 그리지 않는다 */
+.note-title:focus-visible,
+.note-body:focus-visible {
+  outline: none;
+}
+
 .note-title::placeholder,
 .note-body::placeholder {
   color: var(--faint);
@@ -1626,6 +1632,130 @@ pre {
     flex-direction: column;
     align-items: stretch;
   }
+}
+
+/* ------------------------------------------------------------ 날짜 메모 */
+
+.date-tool {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.date-tool .tool[aria-pressed='true'] {
+  color: var(--accent);
+}
+
+/* 달력 선택창(showPicker)만 쓰고 입력칸은 보이지 않게 둔다 */
+.date-input {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  border: 0;
+  padding: 0;
+}
+
+.date-clear {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  color: var(--faint);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.date-clear:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+@media (max-width: 700px) {
+  .date-tool .label {
+    display: inline;
+  }
+}
+
+.note-item-date.dated {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.day-memo-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: calc(100% - 12px);
+  margin: 4px 6px 6px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px dashed var(--border);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.day-memo-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.day-memo-btn.has-note {
+  border-style: solid;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.day-memo-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* 내일 메모 미리보기: 흐리고 작게, 올리면 또렷하게 */
+.tomorrow-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0 10px 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px dashed var(--border);
+  text-align: left;
+  opacity: 0.55;
+  transition: opacity 0.15s, border-color 0.15s;
+}
+
+.tomorrow-card:hover,
+.tomorrow-card:focus-visible {
+  opacity: 1;
+  border-color: var(--accent);
+}
+
+.tomorrow-card.has-note {
+  border-style: solid;
+}
+
+.tomorrow-head {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.tomorrow-text {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-all;
+}
+
+.tomorrow-text.empty {
+  color: var(--faint);
 }
 
 /* ------------------------------------------------------------ 명언 바 */

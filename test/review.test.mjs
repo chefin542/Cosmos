@@ -157,3 +157,34 @@ test('양식은 메모 데이터에 저장되고 다시 읽힌다', () => {
   assert.deepEqual(data.prefs.templates, { week: { format: 'F', guide: 'G' } });
   assert.equal(N.normalizeData({ notes: [] }).prefs.templates, undefined);
 });
+
+test('날짜 메모: 지정한 날짜 하나에만 속하고, 미리 써 둘 수 있다', () => {
+  const memo = N.createNote('text', at(2026, 10, 1), '2026-10-06'); // 10/1에 다음 주 화요일 메모를 미리 씀
+  memo.body = '고객사 미팅 준비';
+  N.markEdited(memo, at(2026, 10, 2));
+  const days = R.activityByDay([memo]);
+  assert.deepEqual([...days.keys()], ['2026-10-06']);
+  assert.deepEqual(N.notesForDate([memo], '2026-10-06'), [memo]);
+  assert.equal(N.dateLabel('2026-10-06'), '10월 6일 (화)');
+  assert.equal(N.addDaysKey('2026-12-31', 1), '2027-01-01');
+
+  // 이번 주(9/28~10/4)에는 안 잡히고, 다음 주 주보에서는 새 메모로 센다
+  assert.equal(R.buildReview([memo], R.weekRange(new Date(2026, 9, 1))).notes.length, 0);
+  const next = R.buildReview([memo], R.weekRange(new Date(2026, 9, 6)));
+  assert.equal(next.createdCount, 1);
+
+  // 이번 주 주보 프롬프트에는 "차주 계획" 재료로 들어간다
+  const { prompt, system } = R.summaryPrompt(R.buildReview([memo], R.weekRange(new Date(2026, 9, 1))));
+  assert.match(prompt, /\[다음 주 날짜로 미리 적어 둔 메모[^\]]*\]\n\n--- 고객사 미팅 준비 \(날짜: 2026-10-06\)/);
+  assert.match(system, /다음 주 날짜로 미리 적어 둔 메모/);
+});
+
+test('날짜 메모 제목: 비어 있으면 "날짜 메모", 휴지통은 제외, 잘못된 날짜는 버린다', () => {
+  const empty = N.createNote('text', at(2026, 10, 1), '2026-10-03');
+  assert.equal(N.noteTitle(empty), '10월 3일 (토) 메모');
+  empty.body = '\n장보기';
+  assert.equal(N.noteTitle(empty), '장보기');
+  assert.deepEqual(N.notesForDate([{ ...empty, deletedAt: 1 }], '2026-10-03'), []);
+  const data = N.normalizeData({ notes: [{ id: 'a', date: '2026-10-03' }, { id: 'b', date: '10/3' }, { id: 'c' }] });
+  assert.deepEqual(data.notes.map((n) => n.date), ['2026-10-03', null, null]);
+});

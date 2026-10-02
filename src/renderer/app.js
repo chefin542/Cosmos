@@ -112,6 +112,57 @@ function newNote(type) {
   select(note.id, { focus: 'body' });
 }
 
+// 날짜 메모: 그 날짜로 지정한 메모를 연다. 없으면 그 날짜로 새로 만든다 (미래 날짜도 가능).
+function openDayMemo(key) {
+  const existing = N.notesForDate(state.data.notes, key)[0];
+  if (existing) {
+    openNote(existing.id);
+    return;
+  }
+  if (state.selectedId) discardIfEmpty(state.selectedId);
+  if (state.view === 'trash') {
+    state.view = 'notes';
+    renderTabs();
+  }
+  const note = N.createNote('text', Date.now(), key);
+  state.data.notes.unshift(note);
+  state.selectedId = null;
+  select(note.id, { focus: 'body' });
+}
+
+function setNoteDate(note, key) {
+  note.date = key || null;
+  note.updatedAt = Date.now();
+  markDirty();
+  renderList();
+  renderToolbar(note);
+  $('note-title').placeholder = note.date ? `${N.dateLabel(note.date)} 메모` : '제목';
+  if (note.date) showToast(`${N.dateLabel(note.date)}의 메모로 지정했습니다.`);
+}
+
+// 사이드바 아래 "내일 메모" 미리보기 (흐리고 작게)
+function previewText(note) {
+  if (note.type === 'checklist') {
+    const open = note.items.filter((it) => !it.done && it.text.trim()).map((it) => `□ ${it.text.trim()}`);
+    return [note.title.trim(), ...open].filter(Boolean).join('  ');
+  }
+  return [note.title.trim(), ...note.body.split('\n').map((l) => l.trim())].filter(Boolean).join(' · ');
+}
+
+function renderTomorrow() {
+  const card = $('tomorrow-card');
+  const key = N.addDaysKey(N.dayKey(Date.now()), 1);
+  const note = N.notesForDate(state.data.notes, key)[0];
+  const text = note ? previewText(note) : '';
+  card.replaceChildren(
+    el('span', 'tomorrow-head', `내일 · ${N.dateLabel(key)}`),
+    el('span', `tomorrow-text${text ? '' : ' empty'}`, text || '+ 내일 메모 미리 쓰기'),
+  );
+  card.title = note ? `${text}\n\n눌러서 열기` : '내일 날짜로 메모를 미리 써 둡니다';
+  card.classList.toggle('has-note', Boolean(note));
+  card.dataset.day = key;
+}
+
 function setView(view) {
   if (state.view === view) return;
   const wasTrash = state.view === 'trash';
@@ -310,7 +361,8 @@ function noteItem(note) {
 
   const sub = el('div', 'note-item-sub');
   const when = state.view === 'trash' ? note.deletedAt : note.updatedAt;
-  sub.append(el('span', 'note-item-date', shortDate(when)));
+  if (note.date && state.view !== 'trash') sub.append(el('span', 'note-item-date dated', N.dateLabel(note.date)));
+  else sub.append(el('span', 'note-item-date', shortDate(when)));
   sub.append(el('span', 'note-item-preview', N.notePreview(note)));
 
   btn.append(head, sub);
@@ -318,6 +370,7 @@ function noteItem(note) {
 }
 
 function renderList() {
+  renderTomorrow();
   const calendar = state.view === 'calendar';
   $('search-box').hidden = calendar;
   $('note-list').hidden = calendar;
@@ -380,6 +433,10 @@ function renderTabs() {
 
 function renderToolbar(note) {
   const inTrash = note.deletedAt !== null;
+  $('note-date').value = note.date || '';
+  $('note-date-label').textContent = note.date ? `${N.dateLabel(note.date)} 메모` : '날짜 지정';
+  $('note-date-btn').setAttribute('aria-pressed', String(Boolean(note.date)));
+  $('note-date-clear').hidden = !note.date;
   $('toolbar-normal').hidden = inTrash;
   $('toolbar-trash').hidden = !inTrash;
   const pin = $('pin-note');
@@ -419,6 +476,7 @@ function renderEditor() {
 
   const title = $('note-title');
   title.value = note.title;
+  title.placeholder = note.date ? `${N.dateLabel(note.date)} 메모` : '제목';
   title.readOnly = readOnly;
 
   const body = $('note-body');
@@ -664,6 +722,20 @@ function bindEvents() {
   api.onNewNote(() => newNote('text'));
 
   $('open-report').addEventListener('click', openThisWeekReport);
+  $('tomorrow-card').addEventListener('click', (e) => openDayMemo(e.currentTarget.dataset.day));
+  $('note-date-btn').addEventListener('click', () => {
+    const input = $('note-date');
+    if (!input.value) input.value = N.dayKey(Date.now());
+    input.showPicker?.();
+  });
+  $('note-date').addEventListener('change', (e) => {
+    const note = current();
+    if (note && note.deletedAt === null) setNoteDate(note, e.target.value);
+  });
+  $('note-date-clear').addEventListener('click', () => {
+    const note = current();
+    if (note) setNoteDate(note, null);
+  });
   $('new-note').addEventListener('click', () => newNote('text'));
   $('new-checklist').addEventListener('click', () => newNote('checklist'));
   $('view-notes').addEventListener('click', () => setView('notes'));
@@ -721,10 +793,18 @@ function bindEvents() {
   $('purge-note').addEventListener('click', withNote(purgeNote));
 
   $('quote-next').addEventListener('click', showNextQuote);
+  // 자정이 지나면 "내일"이 바뀌므로 창으로 돌아올 때마다 다시 그린다.
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) catchUpQuote();
+    if (!document.hidden) {
+      catchUpQuote();
+      renderTomorrow();
+    }
   });
-  window.addEventListener('focus', catchUpQuote);
+  window.addEventListener('focus', () => {
+    catchUpQuote();
+    renderTomorrow();
+  });
+  setInterval(renderTomorrow, 10 * 60 * 1000);
 
   document.addEventListener('keydown', (e) => {
     if (e.isComposing) return;
@@ -759,6 +839,7 @@ const ctx = {
   openReview,
   openSettings,
   closePanel,
+  openDayMemo,
   getTemplate,
   setTemplate,
   noteItem,
@@ -795,8 +876,10 @@ function welcomeNote() {
     '• 설정(⚙)에서 "Claude Code 설정 가져오기"로 회사 AI를 연결하면 "주보 작성하기"로 주보를 써 줍니다.',
     '• "양식 편집"에 회사 주보 양식을 붙여 넣으면 그 모양대로 씁니다.',
     '',
-    '■ 달력',
+    '■ 달력과 날짜 메모',
     '• 날짜를 누르면 그날 쓰거나 고친 메모와 완료한 할 일이 나옵니다.',
+    '• "이 날 메모 쓰기"나 메모 위 "날짜 지정"으로 그날의 메모를 만듭니다. 미래 날짜로 미리 써 둘 수 있습니다.',
+    '• 왼쪽 아래 흐린 카드에 내일 메모가 미리 보입니다.',
     '',
     '■ 단축키',
     '• Ctrl+N 새 메모 · Ctrl+Shift+N 새 체크리스트',

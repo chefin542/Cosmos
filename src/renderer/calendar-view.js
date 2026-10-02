@@ -81,12 +81,24 @@ export function createCalendarView(ctx) {
     if (entry) h.append(el('span', 'count', `기록 ${R.activityCount(entry)}건`));
     box.append(h);
 
+    // 그날의 메모: 있으면 열고, 없으면 그 날짜로 새로 만든다 (미래 날짜도 가능)
+    const dayNote = N.notesForDate(ctx.state.data.notes, selected)[0];
+    const future = selected > N.dayKey(Date.now());
+    box.append(
+      button(
+        `day-memo-btn${dayNote ? ' has-note' : ''}`,
+        dayNote ? `${icon('note')}<span>이 날 메모 열기</span>` : `${icon('plus')}<span>${future ? '이 날 메모 미리 쓰기' : '이 날 메모 쓰기'}</span>`,
+        () => ctx.openDayMemo(selected),
+        { html: true, title: dayNote ? N.noteTitle(dayNote) : '이 날짜로 지정된 메모를 만듭니다' },
+      ),
+    );
+
     if (!entry) {
       box.append(el('p', 'list-empty', '이 날은 기록이 없습니다.'));
       return box;
     }
     if (entry.notes.length) {
-      box.append(el('div', 'list-heading', `쓰거나 고친 메모 ${entry.notes.length}`));
+      box.append(el('div', 'list-heading', `메모 ${entry.notes.length}`));
       entry.notes.forEach((n) => box.append(ctx.noteItem(n)));
     }
     if (entry.done.length) {

@@ -49,6 +49,7 @@
         </div>
         <div id="note-list" class="note-list"></div>
         <div id="calendar-panel" class="calendar-panel" hidden></div>
+        <button id="tomorrow-card" class="tomorrow-card" type="button"></button>
         <nav class="sidebar-footer">
           <button id="view-notes" class="tab" aria-pressed="true">
             메모 <span id="count-notes" class="count"></span>
@@ -76,6 +77,13 @@
                 <button id="convert-note" class="tool">
                   <span data-icon="checklist" aria-hidden="true"></span><span class="label">체크리스트로</span>
                 </button>
+                <span class="date-tool">
+                  <button id="note-date-btn" class="tool" title="이 메모를 그날의 메모로 지정합니다">
+                    <span data-icon="calendar" aria-hidden="true"></span><span id="note-date-label" class="label">날짜 지정</span>
+                  </button>
+                  <input id="note-date" class="date-input" type="date" tabindex="-1" aria-label="메모 날짜" />
+                  <button id="note-date-clear" class="date-clear" title="날짜 지정 해제" hidden>×</button>
+                </span>
                 <span class="spacer"></span>
                 <button id="delete-note" class="tool danger" title="휴지통으로 이동">
                   <span data-icon="trash" aria-hidden="true"></span><span class="label">삭제</span>
