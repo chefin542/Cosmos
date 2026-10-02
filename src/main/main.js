@@ -23,6 +23,10 @@ const { importClaudeSettings } = require('./claude-import');
 const TITLEBAR_HEIGHT = 40;
 const MIN_WIDTH = 520;
 const MIN_HEIGHT = 360;
+// 미니 체크리스트 창 (항상 위, 체크리스트만)
+const MINI_MIN_WIDTH = 240;
+const MINI_MIN_HEIGHT = 180;
+const MINI_SIZE = { width: 300, height: 420 };
 const ASSETS = path.join(__dirname, '..', '..', 'assets');
 
 const PATHS = configurePaths(app);
@@ -60,7 +64,8 @@ if (!app.requestSingleInstanceLock()) {
 function restoredBounds() {
   const b = winState.bounds;
   if (!b) return { width: 960, height: 640 };
-  const height = winState.collapsed ? winState.expandedHeight || 640 : b.height;
+  // 접힌 채 종료했으면 펼친 높이로 연다 (미니 창이었다면 원래 창 높이는 그대로)
+  const height = winState.collapsed && !winState.mini ? winState.expandedHeight || 640 : b.height;
   const bounds = { x: b.x, y: b.y, width: b.width, height };
   // 저장된 위치가 현재 연결된 모니터 밖이면 위치는 버리고 크기만 쓴다.
   const area = screen.getDisplayMatching(bounds).workArea;
@@ -97,10 +102,14 @@ function createWindow() {
   setupDebugging(win.webContents);
 
   win.once('ready-to-show', () => {
-    if (winState.collapsed) {
-      winState.collapsed = false;
-      setCollapsed(true);
+    // 미니 창 상태로 종료했으면 미니 창으로 다시 연다 (접힘보다 먼저)
+    const startCollapsed = winState.collapsed;
+    winState.collapsed = false;
+    if (winState.mini) {
+      winState.mini = false;
+      setMini(true, { restoring: true });
     }
+    if (startCollapsed) setCollapsed(true);
     win.show();
   });
 
@@ -122,6 +131,7 @@ function windowStatus() {
   return {
     alwaysOnTop: Boolean(win?.isAlwaysOnTop()),
     collapsed: Boolean(winState.collapsed),
+    mini: Boolean(winState.mini),
     maximized: Boolean(win?.isMaximized()),
     platform: process.platform,
   };
@@ -139,7 +149,12 @@ function scheduleWindowSave() {
 function saveWindowState() {
   clearTimeout(saveWindowTimer);
   if (!win || win.isDestroyed()) return;
-  if (!win.isMaximized() && !win.isMinimized()) winState.bounds = win.getBounds();
+  // 미니 창일 때의 위치·크기는 따로 기억한다 (원래 창 크기를 덮어쓰지 않게)
+  if (!win.isMaximized() && !win.isMinimized()) {
+    const b = win.getBounds();
+    if (!winState.mini) winState.bounds = b;
+    else if (!winState.collapsed) winState.miniBounds = b;
+  }
   winState.alwaysOnTop = win.isAlwaysOnTop();
   try {
     writeJson(WINDOW_FILE, winState);
@@ -156,6 +171,38 @@ function setAlwaysOnTop(on) {
   updateTrayMenu();
 }
 
+const minWidth = () => (winState.mini ? MINI_MIN_WIDTH : MIN_WIDTH);
+const minHeight = () => (winState.mini ? MINI_MIN_HEIGHT : MIN_HEIGHT);
+
+// 미니 체크리스트 창: 작게 줄이고 항상 위에 둔다. 끄면 원래 위치·크기·항상 위 설정으로 돌아간다.
+// restoring: 미니 창으로 종료했던 앱을 다시 열 때 (원래 항상 위 설정을 덮어쓰지 않는다)
+function setMini(mini, { restoring = false } = {}) {
+  if (!win || mini === Boolean(winState.mini)) return;
+  if (winState.collapsed) setCollapsed(false);
+  if (mini) {
+    if (win.isMaximized()) win.unmaximize();
+    const b = win.getBounds();
+    winState.bounds = b;
+    if (!restoring) winState.alwaysOnTopBeforeMini = win.isAlwaysOnTop();
+    winState.mini = true;
+    win.setMaximizable(false);
+    win.setMinimumSize(MINI_MIN_WIDTH, MINI_MIN_HEIGHT);
+    // 처음에는 원래 창의 오른쪽 위에 붙여서 띄운다
+    win.setBounds(winState.miniBounds || { x: b.x + b.width - MINI_SIZE.width, y: b.y, ...MINI_SIZE });
+    win.setAlwaysOnTop(true);
+  } else {
+    winState.miniBounds = win.getBounds();
+    winState.mini = false;
+    win.setMaximizable(true);
+    win.setMinimumSize(MIN_WIDTH, MIN_HEIGHT);
+    if (winState.bounds) win.setBounds(winState.bounds);
+    win.setAlwaysOnTop(Boolean(winState.alwaysOnTopBeforeMini));
+  }
+  saveWindowState();
+  sendState();
+  updateTrayMenu();
+}
+
 // 접기: 창을 제목 표시줄 높이로 줄인다. 펼치면 원래 높이로 돌아간다.
 function setCollapsed(collapsed) {
   if (!win || collapsed === Boolean(winState.collapsed)) return;
@@ -163,16 +210,16 @@ function setCollapsed(collapsed) {
     if (win.isMaximized()) win.unmaximize();
     const b = win.getBounds();
     winState.expandedHeight = b.height;
-    win.setMinimumSize(MIN_WIDTH, TITLEBAR_HEIGHT);
+    win.setMinimumSize(minWidth(), TITLEBAR_HEIGHT);
     win.setBounds({ ...b, height: TITLEBAR_HEIGHT });
     win.setResizable(false);
     win.setMaximizable(false);
   } else {
     const b = win.getBounds();
     win.setResizable(true);
-    win.setMaximizable(true);
-    win.setMinimumSize(MIN_WIDTH, MIN_HEIGHT);
-    win.setBounds({ ...b, height: Math.max(MIN_HEIGHT, winState.expandedHeight || 640) });
+    win.setMaximizable(!winState.mini);
+    win.setMinimumSize(minWidth(), minHeight());
+    win.setBounds({ ...b, height: Math.max(minHeight(), winState.expandedHeight || 640) });
   }
   winState.collapsed = collapsed;
   saveWindowState();
@@ -230,6 +277,15 @@ function updateTrayMenu() {
         type: 'checkbox',
         checked: Boolean(win?.isAlwaysOnTop()),
         click: (item) => setAlwaysOnTop(item.checked),
+      },
+      {
+        label: '미니 체크리스트 창',
+        type: 'checkbox',
+        checked: Boolean(winState.mini),
+        click: (item) => {
+          showWindow();
+          setMini(item.checked);
+        },
       },
       {
         label: '창 접기',
@@ -448,10 +504,11 @@ function setupIpc() {
   const actions = {
     'toggle-always-on-top': () => setAlwaysOnTop(!win.isAlwaysOnTop()),
     'toggle-collapse': () => setCollapsed(!winState.collapsed),
+    'toggle-mini': () => setMini(!winState.mini),
     'hide-to-tray': hideToTray,
     minimize: () => win.minimize(),
     'toggle-maximize': () => {
-      if (winState.collapsed) return;
+      if (winState.collapsed || winState.mini) return;
       if (win.isMaximized()) win.unmaximize();
       else win.maximize();
     },

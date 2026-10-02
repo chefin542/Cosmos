@@ -101,6 +101,7 @@ function selectFirstVisible() {
 }
 
 function newNote(type) {
+  if (isMini()) type = 'checklist'; // 미니 창에서는 체크리스트만
   if (state.selectedId) discardIfEmpty(state.selectedId);
   state.view = 'notes';
   state.query = '';
@@ -371,6 +372,7 @@ function noteItem(note) {
 
 function renderList() {
   renderTomorrow();
+  if (isMini()) renderMiniSwitch();
   const calendar = state.view === 'calendar';
   $('search-box').hidden = calendar;
   $('note-list').hidden = calendar;
@@ -690,9 +692,57 @@ function catchUpQuote() {
 
 // ------------------------------------------------------------ 창 제어
 
+// ------------------------------------------------------------ 미니 체크리스트 창
+// 창을 작게 줄이고 항상 위에 띄워 체크리스트 하나만 보여 준다 (창 크기·위치는 main.js setMini).
+
+const liveChecklists = () =>
+  state.data.notes
+    .filter((n) => n.type === 'checklist' && n.deletedAt === null && n.kind !== 'review')
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+
+// 지금 보던 체크리스트 → 가장 최근 체크리스트 → 없으면 오늘 날짜로 새로 만든다
+function enterMiniContent() {
+  if (state.view === 'trash') setView('notes');
+  let note = current();
+  if (!note || note.type !== 'checklist' || note.deletedAt !== null) note = liveChecklists()[0];
+  if (!note) {
+    note = N.createNote('checklist', Date.now(), N.dayKey(Date.now()));
+    state.data.notes.unshift(note);
+  }
+  select(note.id);
+  renderMiniSwitch();
+}
+
+function renderMiniSwitch() {
+  const sel = $('mini-switch');
+  const list = liveChecklists();
+  sel.replaceChildren(
+    ...list.map((n) => {
+      const o = document.createElement('option');
+      o.value = n.id;
+      o.textContent = N.noteTitle(n);
+      o.selected = n.id === state.selectedId;
+      return o;
+    }),
+  );
+  const add = document.createElement('option');
+  add.value = '__new__';
+  add.textContent = '+ 새 체크리스트';
+  sel.append(add);
+}
+
+const isMini = () => document.body.classList.contains('mini');
+
 function applyWindowState(ws) {
   if (!ws) return;
+  const wasMini = isMini();
   document.body.classList.toggle('collapsed', ws.collapsed);
+  document.body.classList.toggle('mini', ws.mini);
+  if (ws.mini && !wasMini) enterMiniContent();
+
+  const mini = $('btn-mini');
+  mini.setAttribute('aria-pressed', String(ws.mini));
+  mini.title = ws.mini ? '원래 창으로 (Ctrl+Shift+M)' : '미니 체크리스트 창 (Ctrl+Shift+M)';
 
   const onTop = $('btn-ontop');
   onTop.setAttribute('aria-pressed', String(ws.alwaysOnTop));
@@ -706,12 +756,17 @@ function applyWindowState(ws) {
   const max = $('btn-max');
   setIcon(max, ws.maximized ? 'restoreWin' : 'maximize');
   max.title = ws.maximized ? '이전 크기로' : '최대화';
-  max.disabled = ws.collapsed;
+  max.disabled = ws.collapsed || ws.mini;
 }
 
 // ------------------------------------------------------------ 이벤트 연결
 
 function bindEvents() {
+  $('btn-mini').addEventListener('click', () => api.windowAction('toggle-mini'));
+  $('mini-switch').addEventListener('change', (e) => {
+    if (e.target.value === '__new__') newNote('checklist');
+    else select(e.target.value);
+  });
   $('btn-ontop').addEventListener('click', () => api.windowAction('toggle-always-on-top'));
   $('btn-collapse').addEventListener('click', () => api.windowAction('toggle-collapse'));
   $('btn-tray').addEventListener('click', () => api.windowAction('hide-to-tray'));
@@ -811,7 +866,10 @@ function bindEvents() {
     const mod = e.ctrlKey || e.metaKey;
     if (!mod) return;
     const key = e.key.toLowerCase();
-    if (key === 'n') {
+    if (key === 'm' && e.shiftKey) {
+      e.preventDefault();
+      api.windowAction('toggle-mini');
+    } else if (key === 'n') {
       e.preventDefault();
       newNote(e.shiftKey ? 'checklist' : 'text');
     } else if (key === 'f') {
@@ -862,6 +920,7 @@ function welcomeNote() {
     '■ 창 기능 (오른쪽 위 버튼)',
     '• 항상 위에 표시: 다른 창 위에 메모장을 띄워 둡니다.',
     '• 창 접기: 제목 표시줄만 남깁니다. 다시 누르면 펼쳐집니다.',
+    '• 미니 체크리스트: 작은 창을 항상 위에 띄워 체크리스트만 봅니다. 다시 누르면 원래 창으로 돌아갑니다.',
     '• 트레이로 숨기기: 작업 표시줄에서 사라지고 트레이 아이콘만 남습니다.',
     '  트레이 아이콘을 클릭하거나 메뉴에서 다시 열 수 있습니다.',
     '',
@@ -883,7 +942,7 @@ function welcomeNote() {
     '',
     '■ 단축키',
     '• Ctrl+N 새 메모 · Ctrl+Shift+N 새 체크리스트',
-    '• Ctrl+F 검색 · Ctrl+S 바로 저장 · Ctrl+, 설정 · F12 개발자 도구',
+    '• Ctrl+F 검색 · Ctrl+S 바로 저장 · Ctrl+, 설정 · Ctrl+Shift+M 미니 체크리스트 · F12 개발자 도구',
     '',
     '하단에는 과학 명언이 10분마다 바뀌어 나타납니다. 🪐',
   ].join('\n');

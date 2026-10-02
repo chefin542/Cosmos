@@ -54,7 +54,7 @@ CSP 때문에 인라인 `<script>`와 외부 리소스는 쓸 수 없다.
 | listModels({draft}) | llm:models | 서버의 GET /v1/models 로 모델 이름 목록 |
 | importClaudeSettings() | claude:import | Claude 설정에서 찾은 값을 합쳐 바로 저장. 결과에는 키 끝 4자리만 |
 | openLogs / getDiagnostics | app:open-logs / app:diagnostics | 로그 폴더 열기 / 진단 정보 텍스트 |
-| windowAction(name) | win:action | toggle-always-on-top, toggle-collapse, hide-to-tray, minimize, toggle-maximize, close |
+| windowAction(name) | win:action | toggle-always-on-top, toggle-collapse, toggle-mini, hide-to-tray, minimize, toggle-maximize, close |
 
 ## 데이터 파일 (사용자 데이터 폴더)
 
@@ -73,7 +73,8 @@ Windows `%APPDATA%\cosmos-notes\`, macOS `~/Library/Application Support/cosmos-n
   - 읽을 때 `normalizeData()`가 모든 필드를 검증·보정한다. 형식을 바꾸면 여기서 옛 데이터를 변환한다.
 - `settings.json` — `{ llm: { enabled, format, baseURL, authType, model, maxTokens, timeoutSec, extraHeaders, apiKeyEnc | apiKeyPlain } }`
   - 키는 safeStorage(Windows DPAPI 등)로 암호화한 `apiKeyEnc`. 암호화를 못 쓰는 환경에서만 `apiKeyPlain`.
-- `window-state.json` — 창 위치·크기·항상 위·접힘 상태
+- `window-state.json` — 창 위치·크기·항상 위·접힘 상태, 미니 체크리스트 창(`mini`, `miniBounds`, `alwaysOnTopBeforeMini`)
+  - 미니 창: main.js `setMini()`가 300×420·항상 위로 줄이고, 화면은 `body.mini` 클래스로 체크리스트만 보인다 (app.js `enterMiniContent`).
 - `logs/cosmos.log` — 1MB 넘으면 `cosmos.log.1` 로 넘어감
 
 ## AI 연결 디버깅

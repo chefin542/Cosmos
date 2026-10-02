@@ -1758,6 +1758,87 @@ pre {
   color: var(--faint);
 }
 
+/* ------------------------------------------------------------ 미니 체크리스트 창 */
+
+.mini-switch {
+  display: none;
+}
+
+body.mini .mini-switch {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  flex: 1;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  -webkit-app-region: no-drag;
+}
+
+body.mini .brand {
+  flex: 1;
+  min-width: 0;
+  gap: 6px;
+}
+
+body.mini .titlebar {
+  padding-left: 8px;
+}
+
+body.mini .brand-name,
+body.mini #btn-settings,
+body.mini #btn-max,
+body.mini #btn-tray,
+body.mini #btn-collapse,
+body.mini .win-sep,
+body.mini .sidebar,
+body.mini .quote-bar,
+body.mini .editor-toolbar,
+body.mini .editor-meta,
+body.mini .trash-banner,
+body.mini #review-panel,
+body.mini #settings-panel,
+body.mini .empty-state {
+  display: none !important;
+}
+
+body.mini .win-btn {
+  width: 30px;
+}
+
+body.mini .app {
+  grid-template-columns: 1fr;
+}
+
+body.mini #editor-pane {
+  display: flex !important;
+}
+
+body.mini .editor-scroll {
+  padding: 10px 14px 12px;
+}
+
+body.mini .note-title {
+  font-size: 15px;
+  margin-bottom: 6px;
+}
+
+body.mini .check-row input[type='text'] {
+  font-size: 14px;
+  padding: 2px 0;
+}
+
+body.mini .done-toggle {
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
 /* ------------------------------------------------------------ 명언 바 */
 
 .quote-bar {

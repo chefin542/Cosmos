@@ -14,11 +14,13 @@
     <header class="titlebar">
       <div class="brand">
         <img src="../../assets/tray@2x.png" alt="" width="18" height="18" />
-        <span>Cosmos 메모장</span>
+        <span class="brand-name">Cosmos 메모장</span>
+        <select id="mini-switch" class="mini-switch" aria-label="체크리스트 고르기"></select>
       </div>
       <div class="win-controls">
         <button id="btn-settings" class="win-btn" data-icon="settings" title="설정 (Ctrl+,)"></button>
         <span class="win-sep" aria-hidden="true"></span>
+        <button id="btn-mini" class="win-btn" data-icon="mini" aria-pressed="false" title="미니 체크리스트 창 (Ctrl+Shift+M)"></button>
         <button id="btn-ontop" class="win-btn" data-icon="pin" aria-pressed="false" title="항상 위에 표시"></button>
         <button id="btn-collapse" class="win-btn" data-icon="collapse" aria-pressed="false" title="창 접기"></button>
         <button id="btn-tray" class="win-btn" data-icon="tray" title="트레이로 숨기기"></button>
